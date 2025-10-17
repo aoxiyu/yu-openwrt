@@ -21,7 +21,7 @@ on:
         default: 'false'
         type: boolean
 
-  # 定时触发编译(1,5,10,15,20,25,30早3点)
+# 定时触发编译(1,5,10,15,20,25,30早3点)
   schedule:
     - cron: 0 17 4,9,14,19,24,31 * *
 
@@ -202,31 +202,10 @@ jobs:
          cp -Rf ${WORKPATH}/sources/* ./
         fi
 
-        echo "修复配置文件格式..."
-        CONFIG_FILE="${WORKPATH}/$CONFIG_FILE"
-        
-        # 检查文件是否存在
-        if [ ! -f "$CONFIG_FILE" ]; then
-          echo "错误：配置文件 $CONFIG_FILE 不存在"
-          exit 1
-        fi
-        
-        # 清理配置文件格式
-        sed -i 's/\r$//' "$CONFIG_FILE"  # 去除Windows行尾
-        sed -i 's/\t/  /g' "$CONFIG_FILE"  # 制表符转空格
-        sed -i 's/[[:space:]]*$//' "$CONFIG_FILE"  # 去除行尾空格
-        sed -i '/^[[:space:]]*$/d' "$CONFIG_FILE"  # 删除空行
-        
-        echo "配置文件诊断信息："
-        echo "文件大小：$(wc -l < "$CONFIG_FILE") 行"
-        echo "文件编码：$(file -b "$CONFIG_FILE")"
-        echo "第55-65行内容："
-        sed -n '55,65p' "$CONFIG_FILE" | cat -A
-
         echo "写入配置文件..."
-        cp "$CONFIG_FILE" .config
+        mv ${WORKPATH}/$CONFIG_FILE .config
         
-        echo "运行 defconfig..."
+
         make defconfig
 
     - name: SSH远程连接服务器
@@ -254,6 +233,7 @@ jobs:
         echo
         echo "=========================================="
         echo
+
 
         ZZZ="package/lean/default-settings/files/zzz-default-settings"
         if [ -f "$ZZZ" ]; then
@@ -322,33 +302,19 @@ jobs:
         cd openwrt
         echo "=== 详细错误诊断 ==="
         
-        echo "1. 检查配置文件问题:"
-        echo "第55-70行内容:"
-        sed -n '55,70p' .config | cat -A
-        
-        echo ""
-        echo "2. 检查文件编码和行尾:"
-        file .config
-        hexdump -C .config | head -n 100
-        
-        echo ""
-        echo "3. 检查制表符:"
-        grep -n -P "\t" .config | head -n 10
-        
-        echo ""
-        echo "4. 检查编译日志中的错误:"
-        grep -i "error\|missing\|separator" build.log | tail -n 20
-        
-        echo ""
-        echo "5. 检查包冲突:"
+        echo "1. 检查包冲突:"
         grep -E "CONFIG_PACKAGE_(vsftpd|vsftpd-alt)" .config || echo "未找到 FTP 相关配置"
         
         echo ""
-        echo "6. 查找其他可能的冲突:"
+        echo "2. 查找其他可能的冲突:"
         find . -name "*.mk" -exec grep -l "conflict\|clash" {} \; | head -n 5
         
         echo ""
-        echo "7. 检查已安装的包:"
+        echo "3. 检查编译日志中的错误:"
+        grep -i "error\|conflict\|clash" build.log | tail -n 20
+        
+        echo ""
+        echo "4. 检查已安装的包:"
         find staging_dir -name "*.install" -exec grep -l "vsftpd" {} \; | head -n 5
 
     - name: 整理固件文件

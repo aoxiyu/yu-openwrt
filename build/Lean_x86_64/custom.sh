@@ -358,9 +358,25 @@ EOF
 # ●●●●●●●●●●●●●●●●●●●●●●●●固件定制部分结束●●●●●●●●●●●●●●●●●●●●●●●● #
 # 
 
-sed -i 's/^[ \t]*//g' ./.config
+# 创建自定义配置文件
+cd $WORKPATH
+touch ./.config
+
+# ... 你现有的所有 cat >> .config <<EOF 块 ...
+
+# 修复和调试
+echo "=== 原始配置行数: $(wc -l .config) ==="
+echo "=== 第60-70行内容 ==="
+sed -n '60,70p' .config
+
+# 自动修复常见语法错误
+sed -i 's/^\(CONFIG_[A-Z0-9_]*\)[[:space:]]\+\([^=]\)/\1=\2/g' .config
+sed -i 's/^[[:space:]]*#*[[:space:]]*\(CONFIG_[A-Z0-9_]*\)[[:space:]]\+is not set/# \1 is not set/g' .config
+sed -i '/^[[:space:]]*$/d' .config
+
+echo "=== 修复后的第60-70行内容 ==="
+sed -n '60,70p' .config
+echo "=== 修复完成 ==="
 
 # 返回目录
 cd $HOME
-
-# 配置文件创建完成

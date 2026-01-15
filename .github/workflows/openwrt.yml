@@ -285,6 +285,25 @@ jobs:
         cd openwrt
         make -j$(nproc) V=sc 2>&1 | tee build.log || (echo "编译失败，查看详细日志..." && tail -n 100 build.log && exit 1)
 
+    - name: 检查生成的固件文件
+      if: success()
+      run: |
+        echo "=== 检查编译输出目录 ==="
+        if [ -d "openwrt/bin/targets" ]; then
+          echo "目标目录结构:"
+          find openwrt/bin/targets/ -type f 2>/dev/null | head -30
+          
+          echo ""
+          echo "所有固件文件:"
+          find openwrt/bin/targets/ -type f \( -name "*.img" -o -name "*.img.gz" -o -name "*.bin" -o -name "*.bin.gz" -o -name "*.vmdk" -o -name "*.vdi" \) 2>/dev/null
+        else
+          echo "警告：openwrt/bin/targets 目录不存在！"
+          if [ -d "openwrt/bin" ]; then
+            echo "检查bin目录内容:"
+            find openwrt/bin/ -type f 2>/dev/null | head -20
+          fi
+        fi
+
     - name: 检查空间使用情况
       run: |
         echo "======================="
@@ -321,19 +340,108 @@ jobs:
       if: success()
       id: organizer
       run: |
+        echo "开始整理固件文件..."
+        
+        # 创建必要的目录
         mkdir -p ./artifact/firmware
         mkdir -p ./artifact/buildinfo
-        cp -rf openwrt/.config ./artifact/buildinfo/${{matrix.target}}.config || true
-        rm -rf $(find openwrt/bin/targets/ -type d -name "packages")
-        cp -rf $(find openwrt/bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/ || true        
-        cp -rf $(find openwrt/bin/targets/ -type f \( -name "*squashfs*efi*img*" -o -name "*squashfs*sysupgrade*bin*" -o -name "*squashfs*factory*bin*" \) ) ./artifact/firmware/
+        
+        # 复制配置文件
+        if [ -f "openwrt/.config" ]; then
+          cp -rf openwrt/.config ./artifact/buildinfo/${{matrix.target}}.config
+          echo "已复制配置文件"
+        else
+          echo "警告：未找到 .config 文件"
+        fi
+        
+        # 清理packages目录
+        if [ -d "openwrt/bin/targets" ]; then
+          find openwrt/bin/targets/ -type d -name "packages" -exec rm -rf {} \; 2>/dev/null || true
+          echo "已清理packages目录"
+        fi
+        
+        # 复制buildinfo和manifest文件
+        if [ -d "openwrt/bin/targets" ]; then
+          # 查找并复制 buildinfo 和 manifest 文件
+          find openwrt/bin/targets/ -type f \( -name "*.buildinfo" -o -name "*.manifest" \) -exec cp -rf {} ./artifact/buildinfo/ \; 2>/dev/null || true
+          
+          # 如果没有找到，尝试在其他位置查找
+          if [ -z "$(ls -A ./artifact/buildinfo/*.buildinfo 2>/dev/null)" ]; then
+            find openwrt/bin/ -type f \( -name "*.buildinfo" -o -name "*.manifest" \) -exec cp -rf {} ./artifact/buildinfo/ \; 2>/dev/null || true
+          fi
+          echo "已复制buildinfo和manifest文件"
+        fi
+        
+        # 复制固件文件 - 使用更精确的匹配模式
+        FIRMWARE_COUNT=0
+        if [ -d "openwrt/bin/targets" ]; then
+          echo "正在搜索固件文件..."
+          
+          # 方法1：精确匹配常见的x86_64固件文件
+          find openwrt/bin/targets/ -type f \( \
+            -name "*combined*.img.gz" -o \
+            -name "*combined-efi*.img.gz" -o \
+            -name "*rootfs*.img.gz" -o \
+            -name "*ext4*.img.gz" -o \
+            -name "*squashfs*.img.gz" -o \
+            -name "*generic*.img.gz" -o \
+            -name "*x86-64*.img.gz" -o \
+            -name "*efi*.img.gz" -o \
+            -name "*sysupgrade*.bin" -o \
+            -name "*factory*.bin" -o \
+            -name "*kernel*.bin" -o \
+            -name "*rootfs*.bin" \
+          \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null
+          
+          # 方法2：如果方法1没找到文件，使用更宽松的匹配
+          if [ -z "$(ls -A ./artifact/firmware/ 2>/dev/null)" ]; then
+            echo "方法1未找到文件，使用宽松匹配搜索..."
+            find openwrt/bin/targets/ -type f \( \
+              -name "*.img" -o \
+              -name "*.img.gz" -o \
+              -name "*.bin" -o \
+              -name "*.bin.gz" \
+            \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null || true
+          fi
+          
+          # 方法3：如果还没找到，尝试在整个bin目录中搜索
+          if [ -z "$(ls -A ./artifact/firmware/ 2>/dev/null)" ]; then
+            echo "方法2未找到文件，在整个bin目录中搜索..."
+            find openwrt/bin/ -type f \( \
+              -name "*.img" -o \
+              -name "*.img.gz" -o \
+              -name "*.bin" -o \
+              -name "*.bin.gz" \
+            \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null || true
+          fi
+          
+          # 统计找到的文件数量
+          FIRMWARE_COUNT=$(ls -1 ./artifact/firmware/ 2>/dev/null | wc -l)
+        fi
+        
+        # 检查是否复制到了固件
+        if [ $FIRMWARE_COUNT -gt 0 ]; then
+          echo "成功找到 $FIRMWARE_COUNT 个固件文件:"
+          ls -la ./artifact/firmware/
+        else
+          echo "警告：未找到固件文件！"
+          echo "检查目录结构:"
+          find openwrt/bin/ -type f 2>/dev/null | head -30 || true
+          # 创建一个空文件，避免后续步骤因目录为空而失败
+          touch ./artifact/firmware/NO_FIRMWARE_FOUND.txt
+        fi
+        
+        # 计算编译时间
         echo "编译完成时间..."
         START_SECONDS=${{ env.START_SECONDS }}
         END_TIME=`date +'%Y-%m-%d %H:%M:%S'`
         END_SECONDS=$(date --date="$END_TIME" +%s)
         SECONDS=$((END_SECONDS-START_SECONDS))
-        HOUR=$(( $SECONDS/3600 )) && MIN=$(( ($SECONDS-${HOUR}*3600)/60 )) && SEC=$(( $SECONDS-${HOUR}*3600-${MIN}*60 ))
+        HOUR=$(( $SECONDS/3600 )) 
+        MIN=$(( ($SECONDS-${HOUR}*3600)/60 )) 
+        SEC=$(( $SECONDS-${HOUR}*3600-${MIN}*60 ))
         echo "BUILD_TIME=${HOUR}时${MIN}分${SEC}秒" >> $GITHUB_ENV
+        echo "编译用时：${HOUR}时${MIN}分${SEC}秒"
 
     - name: 上传固件文件
       if: steps.compile.outcome == 'success' && env.UPLOAD_FIRMWARE == 'true'
@@ -402,6 +510,7 @@ jobs:
     - name: 编译成功信息通知-Telegram
       if: steps.compile.outcome == 'success' && env.TELEGRAM_BOT == 'true'
       run: |
+        FIRMWARE_LIST=$(ls -1 ./artifact/firmware/ 2>/dev/null | grep -v "NO_FIRMWARE_FOUND" | head -5 | tr '\n' ', ' || echo "无固件文件")
         curl "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=
 
            您的${{ env.FIRMWARE_MESSAGE }}固件成功编译完成了！
@@ -411,6 +520,8 @@ jobs:
           🎈 编译时间：${{ env.FILE_TIME1 }}
 
           ⏰ 编译用时：${{ env.BUILD_TIME }}
+
+          固件文件：${FIRMWARE_LIST}
 
           🎉 发布地址：${{ env.GITHUB_RELEASE }}
 

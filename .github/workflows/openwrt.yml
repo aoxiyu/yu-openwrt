@@ -205,8 +205,26 @@ jobs:
         echo "写入配置文件..."
         mv ${WORKPATH}/$CONFIG_FILE .config
         
+        # 启用EXT4文件系统支持 - 这是关键修改
+        echo "CONFIG_TARGET_ROOTFS_EXT4FS=y" >> .config
+        echo "CONFIG_TARGET_ROOTFS_EXT4FS_BLOCKS=2048" >> .config
+        echo "CONFIG_TARGET_ROOTFS_EXT4FS_INODES=512" >> .config
+        echo "CONFIG_TARGET_IMAGES_EXT4=y" >> .config
+        
+        # 确保EFI支持也开启（如果还没有）
+        echo "CONFIG_GRUB_IMAGES=y" >> .config
+        echo "CONFIG_GRUB_EFI_IMAGES=y" >> .config
+        
+        # 保留squashfs支持
+        echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
 
         make defconfig
+        
+        # 验证配置是否生效
+        echo "检查EXT4配置是否启用:"
+        grep "CONFIG_TARGET_ROOTFS_EXT4FS" .config || echo "EXT4配置未找到"
+        echo "检查EFI配置是否启用:"
+        grep "CONFIG_GRUB_EFI_IMAGES" .config || echo "EFI配置未找到"
 
     - name: SSH远程连接服务器
       uses: db-one/debugger-action@main
@@ -245,6 +263,15 @@ jobs:
         echo "	    源码分支：${{ env.REPO_BRANCH }}"
 
         echo "	    编译时间：${{ env.FILE_TIME1 }}"
+
+        echo
+        echo "=========================================="
+
+        # 显示文件系统配置信息
+        echo "文件系统配置:"
+        grep -E "CONFIG_TARGET_ROOTFS_(SQUASHFS|EXT4FS)" .config || echo "未找到文件系统配置"
+        grep -E "CONFIG_TARGET_IMAGES_(EXT4|SQUASHFS)" .config || echo "未找到镜像配置"
+        grep -E "CONFIG_GRUB_(IMAGES|EFI_IMAGES)" .config || echo "未找到GRUB配置"
 
         echo
         echo "=========================================="
@@ -296,6 +323,17 @@ jobs:
           echo ""
           echo "所有固件文件:"
           find openwrt/bin/targets/ -type f \( -name "*.img" -o -name "*.img.gz" -o -name "*.bin" -o -name "*.bin.gz" -o -name "*.vmdk" -o -name "*.vdi" \) 2>/dev/null
+          
+          echo ""
+          echo "按类型分类:"
+          echo "1. EXT4文件系统固件:"
+          find openwrt/bin/targets/ -type f -name "*ext4*" 2>/dev/null
+          echo ""
+          echo "2. SquashFS文件系统固件:"
+          find openwrt/bin/targets/ -type f -name "*squashfs*" 2>/dev/null
+          echo ""
+          echo "3. 所有镜像文件:"
+          find openwrt/bin/targets/ -type f -name "*.img*" 2>/dev/null
         else
           echo "警告：openwrt/bin/targets 目录不存在！"
           if [ -d "openwrt/bin" ]; then
@@ -335,6 +373,10 @@ jobs:
         echo ""
         echo "4. 检查已安装的包:"
         find staging_dir -name "*.install" -exec grep -l "vsftpd" {} \; | head -n 5
+        
+        echo ""
+        echo "5. 检查文件系统配置:"
+        grep -E "CONFIG_TARGET_ROOTFS|CONFIG_TARGET_IMAGES" .config
 
     - name: 整理固件文件
       if: success()
@@ -372,42 +414,38 @@ jobs:
           echo "已复制buildinfo和manifest文件"
         fi
         
-        # 复制固件文件 - 使用更精确的匹配模式
+        # 复制固件文件 - 特别添加EXT4格式的匹配
         FIRMWARE_COUNT=0
         if [ -d "openwrt/bin/targets" ]; then
           echo "正在搜索固件文件..."
           
-          # 方法1：精确匹配常见的x86_64固件文件
+          # 方法1：优先匹配EXT4格式固件
+          echo "搜索EXT4格式固件..."
+          find openwrt/bin/targets/ -type f \( \
+            -name "*ext4*.img.gz" -o \
+            -name "*ext4*.img" -o \
+            -name "*ext4*.bin" -o \
+            -name "*ext4*.bin.gz" \
+          \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null
+          
+          # 方法2：匹配其他常见格式
+          echo "搜索其他格式固件..."
           find openwrt/bin/targets/ -type f \( \
             -name "*combined*.img.gz" -o \
             -name "*combined-efi*.img.gz" -o \
             -name "*rootfs*.img.gz" -o \
-            -name "*ext4*.img.gz" -o \
             -name "*squashfs*.img.gz" -o \
             -name "*generic*.img.gz" -o \
             -name "*x86-64*.img.gz" -o \
             -name "*efi*.img.gz" -o \
             -name "*sysupgrade*.bin" -o \
-            -name "*factory*.bin" -o \
-            -name "*kernel*.bin" -o \
-            -name "*rootfs*.bin" \
+            -name "*factory*.bin" \
           \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null
           
-          # 方法2：如果方法1没找到文件，使用更宽松的匹配
+          # 方法3：如果上面的匹配没找到，使用更宽松的匹配
           if [ -z "$(ls -A ./artifact/firmware/ 2>/dev/null)" ]; then
-            echo "方法1未找到文件，使用宽松匹配搜索..."
+            echo "使用宽松匹配搜索固件..."
             find openwrt/bin/targets/ -type f \( \
-              -name "*.img" -o \
-              -name "*.img.gz" -o \
-              -name "*.bin" -o \
-              -name "*.bin.gz" \
-            \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null || true
-          fi
-          
-          # 方法3：如果还没找到，尝试在整个bin目录中搜索
-          if [ -z "$(ls -A ./artifact/firmware/ 2>/dev/null)" ]; then
-            echo "方法2未找到文件，在整个bin目录中搜索..."
-            find openwrt/bin/ -type f \( \
               -name "*.img" -o \
               -name "*.img.gz" -o \
               -name "*.bin" -o \
@@ -422,7 +460,16 @@ jobs:
         # 检查是否复制到了固件
         if [ $FIRMWARE_COUNT -gt 0 ]; then
           echo "成功找到 $FIRMWARE_COUNT 个固件文件:"
+          echo "================================"
           ls -la ./artifact/firmware/
+          echo "================================"
+          echo "文件详情:"
+          for file in ./artifact/firmware/*; do
+            if [ -f "$file" ]; then
+              size=$(du -h "$file" | cut -f1)
+              echo "  - $(basename "$file") (${size})"
+            fi
+          done
         else
           echo "警告：未找到固件文件！"
           echo "检查目录结构:"
@@ -482,6 +529,8 @@ jobs:
 
             ⏰ 编译用时：${{ env.BUILD_TIME }}
 
+            📁 固件格式：包含 EXT4 和 SquashFS 两种文件系统
+            
             🎉 [ ${{ env.FIRMWARE_MESSAGE }} ]固件下载
 
             ━━━━━━━━━━━━━━━━━━━━
@@ -510,7 +559,20 @@ jobs:
     - name: 编译成功信息通知-Telegram
       if: steps.compile.outcome == 'success' && env.TELEGRAM_BOT == 'true'
       run: |
-        FIRMWARE_LIST=$(ls -1 ./artifact/firmware/ 2>/dev/null | grep -v "NO_FIRMWARE_FOUND" | head -5 | tr '\n' ', ' || echo "无固件文件")
+        # 获取固件列表
+        FIRMWARE_LIST=""
+        if [ -d "./artifact/firmware" ]; then
+          FIRMWARE_LIST=$(cd ./artifact/firmware && ls -1 *.img.gz *.bin 2>/dev/null | head -10 | tr '\n' '\n' || echo "无固件文件")
+        fi
+        
+        # 统计不同类型的固件
+        EXT4_COUNT=0
+        SQUASHFS_COUNT=0
+        if [ -d "./artifact/firmware" ]; then
+          EXT4_COUNT=$(cd ./artifact/firmware && ls -1 *ext4* 2>/dev/null | wc -l)
+          SQUASHFS_COUNT=$(cd ./artifact/firmware && ls -1 *squashfs* 2>/dev/null | wc -l)
+        fi
+        
         curl "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=
 
            您的${{ env.FIRMWARE_MESSAGE }}固件成功编译完成了！
@@ -521,7 +583,12 @@ jobs:
 
           ⏰ 编译用时：${{ env.BUILD_TIME }}
 
-          固件文件：${FIRMWARE_LIST}
+          📊 固件统计：
+          - EXT4格式：${EXT4_COUNT}个
+          - SquashFS格式：${SQUASHFS_COUNT}个
+
+          主要固件文件：
+          ${FIRMWARE_LIST}
 
           🎉 发布地址：${{ env.GITHUB_RELEASE }}
 

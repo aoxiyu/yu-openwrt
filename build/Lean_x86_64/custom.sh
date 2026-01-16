@@ -274,6 +274,26 @@ CONFIG_VMDK_IMAGES=n
 CONFIG_TARGET_IMAGES_PAD=y
 EOF
 
+# ==================== 文件系统配置 ====================
+# 同时启用 SquashFS 和 EXT4 文件系统支持
+cat >> .config <<EOF
+# 启用 SquashFS 文件系统 (默认已启用)
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+
+# 启用 EXT4 文件系统支持
+CONFIG_TARGET_ROOTFS_EXT4FS=y
+CONFIG_TARGET_ROOTFS_EXT4FS_BLOCKS=2048
+CONFIG_TARGET_ROOTFS_EXT4FS_INODES=512
+CONFIG_TARGET_IMAGES_EXT4=y
+
+# 启用 GRUB 引导支持
+CONFIG_GRUB_IMAGES=y
+CONFIG_GRUB_EFI_IMAGES=y
+
+# 启用生成 ext4 格式的根文件系统镜像
+CONFIG_TARGET_ROOTFS_EXT4FS_ROOTFS=y
+EOF
+
 # 第三方插件选择:
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-openclash=y #OpenClash客户端
@@ -380,3 +400,9 @@ echo "=== 修复完成 ==="
 
 # 返回目录
 cd $HOME
+
+# 添加调试信息，检查文件系统配置是否正确应用
+echo "=== 检查文件系统配置 ==="
+grep -E "CONFIG_TARGET_ROOTFS_(SQUASHFS|EXT4FS)" .config || echo "文件系统配置未找到"
+grep -E "CONFIG_TARGET_IMAGES_(SQUASHFS|EXT4)" .config || echo "镜像配置未找到"
+grep -E "CONFIG_GRUB_(IMAGES|EFI_IMAGES)" .config || echo "GRUB配置未找到"

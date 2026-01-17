@@ -49,18 +49,34 @@ jobs:
 
     - name: 检测脚本设置
       run: |
-        source "${GITHUB_WORKSPACE}/build/${{matrix.target}}/settings.ini"
-        echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
-        echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
-        echo "CONFIG_FILE=${CONFIG_FILE}" >> $GITHUB_ENV
-        echo "FIRMWARE_MESSAGE=${FIRMWARE_MESSAGE}" >> $GITHUB_ENV
-        echo "CUSTOM_SH=${CUSTOM_SH}" >> $GITHUB_ENV
-        echo "CACHE_BUILD=${CACHE_BUILD}" >> $GITHUB_ENV
-        echo "SSH_ACTIONS=${SSH_ACTIONS}" >> $GITHUB_ENV
-        echo "UPLOAD_FIRMWARE=${UPLOAD_FIRMWARE}" >> $GITHUB_ENV
-        echo "UPLOAD_CONFIG=${UPLOAD_CONFIG}" >> $GITHUB_ENV
-        echo "UPLOAD_RELEASE=${UPLOAD_RELEASE}" >> $GITHUB_ENV
-        echo "TELEGRAM_BOT=${TELEGRAM_BOT}" >> $GITHUB_ENV
+        if [ -f "${GITHUB_WORKSPACE}/build/${{matrix.target}}/settings.ini" ]; then
+          source "${GITHUB_WORKSPACE}/build/${{matrix.target}}/settings.ini"
+          echo "REPO_URL=${REPO_URL}" >> $GITHUB_ENV
+          echo "REPO_BRANCH=${REPO_BRANCH}" >> $GITHUB_ENV
+          echo "CONFIG_FILE=${CONFIG_FILE}" >> $GITHUB_ENV
+          echo "FIRMWARE_MESSAGE=${FIRMWARE_MESSAGE}" >> $GITHUB_ENV
+          echo "CUSTOM_SH=${CUSTOM_SH}" >> $GITHUB_ENV
+          echo "CACHE_BUILD=${CACHE_BUILD:-true}" >> $GITHUB_ENV
+          echo "SSH_ACTIONS=${SSH_ACTIONS:-false}" >> $GITHUB_ENV
+          echo "UPLOAD_FIRMWARE=${UPLOAD_FIRMWARE:-true}" >> $GITHUB_ENV
+          echo "UPLOAD_CONFIG=${UPLOAD_CONFIG:-false}" >> $GITHUB_ENV
+          echo "UPLOAD_RELEASE=${UPLOAD_RELEASE:-false}" >> $GITHUB_ENV
+          echo "TELEGRAM_BOT=${TELEGRAM_BOT:-false}" >> $GITHUB_ENV
+        else
+          echo "警告：未找到settings.ini文件，使用默认值"
+          echo "REPO_URL=https://github.com/coolsnowwolf/lede" >> $GITHUB_ENV
+          echo "REPO_BRANCH=master" >> $GITHUB_ENV
+          echo "CONFIG_FILE=.config" >> $GITHUB_ENV
+          echo "FIRMWARE_MESSAGE=Lean_x86_64固件" >> $GITHUB_ENV
+          echo "CUSTOM_SH=custom.sh" >> $GITHUB_ENV
+          echo "CACHE_BUILD=true" >> $GITHUB_ENV
+          echo "SSH_ACTIONS=false" >> $GITHUB_ENV
+          echo "UPLOAD_FIRMWARE=true" >> $GITHUB_ENV
+          echo "UPLOAD_CONFIG=false" >> $GITHUB_ENV
+          echo "UPLOAD_RELEASE=false" >> $GITHUB_ENV
+          echo "TELEGRAM_BOT=false" >> $GITHUB_ENV
+        fi
+        
         #添加变量
         echo "HOME=${GITHUB_WORKSPACE}/openwrt" >> $GITHUB_ENV
         echo "WORKPATH=${GITHUB_WORKSPACE}/openwrt/build/${{matrix.target}}" >> $GITHUB_ENV
@@ -81,7 +97,7 @@ jobs:
         sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android
         sudo -E apt-mark hold grub-efi-amd64-signed
         sudo -E apt update -y
-        sudo -E apt -y purge azure-cli* docker* ghc* zulu* llvm* firefox google* dotnet* powershell* openjdk* mysql* php* mongodb* dotnet* snap* || true
+        sudo -E apt -y purge azure-cli* docker* ghc* zulu* llvm* firefox google* dotnet* powershell* openjdk* mysql* php* mongodb* dotnet* snap* || echo "清理部分包失败，继续..."
         sudo -E apt full-upgrade -y
         sudo -E apt install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
                    bzip2 ccache clang cmake cpio curl device-tree-compiler ecj flex gawk gcc-multilib \
@@ -90,7 +106,7 @@ jobs:
                    libreadline-dev libssl-dev libpython3-dev libtool libyaml-dev libz-dev lld llvm lrzsz msmtp \
                    ninja-build p7zip p7zip-full patch pkgconf python3 python3 python3-ply python3-docutils \
                    python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
-                   upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd libfuse-dev gettext genisoimage python3-setuptools || true
+                   upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd libfuse-dev gettext genisoimage python3-setuptools || echo "安装编译依赖失败，继续..."
         sudo -E systemctl daemon-reload
         sudo -E apt -y autoremove --purge
         sudo -E apt clean
@@ -99,7 +115,7 @@ jobs:
       run: |
         sudo -E apt-get -y install xsltproc zip grep python3-pip python3-ply libc6-dev libtinfo-dev libtinfo5 ncurses-doc \
                     python2 git-core wget curl rsync dos2unix fakeroot jq libc6-dev-i386 libncurses5-dev libncursesw5 \
-                    libncursesw5-dev quilt python3-distutils file g++ || true
+                    libncursesw5-dev quilt python3-distutils file g++ || echo "安装额外依赖失败，继续..."
         sudo mkdir -p /workdir
         sudo chown $USER:$GROUPS /workdir
         sudo timedatectl set-timezone "$TZ"
@@ -140,7 +156,12 @@ jobs:
       working-directory: /github-builder
       run: |
         df -hT $PWD
-        git clone -b $REPO_BRANCH --single-branch $REPO_URL openwrt
+        if [ ! -d "openwrt" ]; then
+          echo "正在克隆源码..."
+          git clone -b $REPO_BRANCH --single-branch $REPO_URL openwrt
+        else
+          echo "源码已存在，跳过克隆"
+        fi
         ln -sf /github-builder/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: 缓存加速
@@ -164,15 +185,18 @@ jobs:
     - name: 加载源,定制文件并生成自定义配置
       run: |
         # 复制配置文件到源码目录
-        cp -Rf `find ./ -maxdepth 1 -type d ! -path './openwrt' ! -path './'` openwrt
+        echo "复制配置文件到源码目录..."
+        cp -Rf `find ./ -maxdepth 1 -type d ! -path './openwrt' ! -path './'` openwrt 2>/dev/null || echo "复制配置文件完成"
         cd openwrt
 
-        echo "执行脚本"
+        echo "执行自定义脚本..."
         if [ -f "${WORKPATH}/$CUSTOM_SH" ]; then
         (
-          chmod +x ${WORKPATH}/$CUSTOM_SH
+          chmod +x "${WORKPATH}/$CUSTOM_SH"
           /bin/bash "${WORKPATH}/$CUSTOM_SH"
         )
+        else
+          echo "警告：未找到自定义脚本 ${WORKPATH}/$CUSTOM_SH"
         fi
 
         echo "复制脚本文件..."
@@ -203,19 +227,19 @@ jobs:
         fi
 
         echo "写入配置文件..."
-        mv ${WORKPATH}/$CONFIG_FILE .config
+        if [ -f "${WORKPATH}/$CONFIG_FILE" ]; then
+          mv ${WORKPATH}/$CONFIG_FILE .config
+        else
+          echo "警告：未找到配置文件 ${WORKPATH}/$CONFIG_FILE，使用默认配置"
+        fi
         
-        # 启用EXT4文件系统支持 - 这是关键修改
+        # 启用EXT4文件系统支持
         echo "CONFIG_TARGET_ROOTFS_EXT4FS=y" >> .config
         echo "CONFIG_TARGET_ROOTFS_EXT4FS_BLOCKS=2048" >> .config
         echo "CONFIG_TARGET_ROOTFS_EXT4FS_INODES=512" >> .config
         echo "CONFIG_TARGET_IMAGES_EXT4=y" >> .config
-        
-        # 确保EFI支持也开启（如果还没有）
         echo "CONFIG_GRUB_IMAGES=y" >> .config
         echo "CONFIG_GRUB_EFI_IMAGES=y" >> .config
-        
-        # 保留squashfs支持
         echo "CONFIG_TARGET_ROOTFS_SQUASHFS=y" >> .config
 
         make defconfig
@@ -258,8 +282,9 @@ jobs:
           echo "	    当前编译版本：$(cat $ZZZ|grep DISTRIB_REVISION= | sed 's/^.\{24\}//g' | sed 's/.\{26\}$//')"
         fi
 
-        echo "KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')" >> $GITHUB_ENV
-        echo "	    内核版本：$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')"
+        KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')
+        echo "KERNEL_PATCHVER=${KERNEL_PATCHVER}" >> $GITHUB_ENV
+        echo "	    内核版本：${KERNEL_PATCHVER}"
         echo "	    源码分支：${{ env.REPO_BRANCH }}"
 
         echo "	    编译时间：${{ env.FILE_TIME1 }}"
@@ -304,7 +329,8 @@ jobs:
 
     - name: 下载编译所需文件
       run: |
-        cd openwrt && make download -j4
+        cd openwrt
+        make download -j$(nproc) || make download -j4 || echo "下载失败，继续编译..."
 
     - name: 开始编译固件
       id: compile
@@ -322,7 +348,7 @@ jobs:
           
           echo ""
           echo "所有固件文件:"
-          find openwrt/bin/targets/ -type f \( -name "*.img" -o -name "*.img.gz" -o -name "*.bin" -o -name "*.bin.gz" -o -name "*.vmdk" -o -name "*.vdi" \) 2>/dev/null
+          find openwrt/bin/targets/ -type f \( -name "*.img" -o -name "*.img.gz" -o -name "*.bin" -o -name "*.bin.gz" \) 2>/dev/null
           
           echo ""
           echo "按类型分类:"
@@ -335,11 +361,14 @@ jobs:
           echo "3. 所有镜像文件:"
           find openwrt/bin/targets/ -type f -name "*.img*" 2>/dev/null
         else
-          echo "警告：openwrt/bin/targets 目录不存在！"
+          echo "错误：openwrt/bin/targets 目录不存在！"
+          echo "检查编译是否成功..."
           if [ -d "openwrt/bin" ]; then
-            echo "检查bin目录内容:"
+            echo "bin目录内容:"
+            ls -la openwrt/bin/
             find openwrt/bin/ -type f 2>/dev/null | head -20
           fi
+          exit 1
         fi
 
     - name: 检查空间使用情况
@@ -396,62 +425,25 @@ jobs:
           echo "警告：未找到 .config 文件"
         fi
         
-        # 清理packages目录
-        if [ -d "openwrt/bin/targets" ]; then
-          find openwrt/bin/targets/ -type d -name "packages" -exec rm -rf {} \; 2>/dev/null || true
-          echo "已清理packages目录"
-        fi
-        
         # 复制buildinfo和manifest文件
         if [ -d "openwrt/bin/targets" ]; then
           # 查找并复制 buildinfo 和 manifest 文件
           find openwrt/bin/targets/ -type f \( -name "*.buildinfo" -o -name "*.manifest" \) -exec cp -rf {} ./artifact/buildinfo/ \; 2>/dev/null || true
-          
-          # 如果没有找到，尝试在其他位置查找
-          if [ -z "$(ls -A ./artifact/buildinfo/*.buildinfo 2>/dev/null)" ]; then
-            find openwrt/bin/ -type f \( -name "*.buildinfo" -o -name "*.manifest" \) -exec cp -rf {} ./artifact/buildinfo/ \; 2>/dev/null || true
-          fi
           echo "已复制buildinfo和manifest文件"
         fi
         
-        # 复制固件文件 - 特别添加EXT4格式的匹配
+        # 复制固件文件 - 使用更通用的匹配模式
         FIRMWARE_COUNT=0
         if [ -d "openwrt/bin/targets" ]; then
           echo "正在搜索固件文件..."
           
-          # 方法1：优先匹配EXT4格式固件
-          echo "搜索EXT4格式固件..."
-          find openwrt/bin/targets/ -type f \( \
-            -name "*ext4*.img.gz" -o \
-            -name "*ext4*.img" -o \
-            -name "*ext4*.bin" -o \
-            -name "*ext4*.bin.gz" \
-          \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null
+          # 首先查找所有可能的固件文件
+          echo "查找所有镜像文件:"
+          find openwrt/bin/targets/ -type f \( -name "*.img.gz" -o -name "*.img" -o -name "*.bin" \) 2>/dev/null
           
-          # 方法2：匹配其他常见格式
-          echo "搜索其他格式固件..."
-          find openwrt/bin/targets/ -type f \( \
-            -name "*combined*.img.gz" -o \
-            -name "*combined-efi*.img.gz" -o \
-            -name "*rootfs*.img.gz" -o \
-            -name "*squashfs*.img.gz" -o \
-            -name "*generic*.img.gz" -o \
-            -name "*x86-64*.img.gz" -o \
-            -name "*efi*.img.gz" -o \
-            -name "*sysupgrade*.bin" -o \
-            -name "*factory*.bin" \
-          \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null
-          
-          # 方法3：如果上面的匹配没找到，使用更宽松的匹配
-          if [ -z "$(ls -A ./artifact/firmware/ 2>/dev/null)" ]; then
-            echo "使用宽松匹配搜索固件..."
-            find openwrt/bin/targets/ -type f \( \
-              -name "*.img" -o \
-              -name "*.img.gz" -o \
-              -name "*.bin" -o \
-              -name "*.bin.gz" \
-            \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null || true
-          fi
+          # 复制所有找到的固件文件
+          echo "复制固件文件..."
+          find openwrt/bin/targets/ -type f \( -name "*.img.gz" -o -name "*.img" -o -name "*.bin" \) -exec cp -rf {} ./artifact/firmware/ \; 2>/dev/null
           
           # 统计找到的文件数量
           FIRMWARE_COUNT=$(ls -1 ./artifact/firmware/ 2>/dev/null | wc -l)
@@ -470,12 +462,15 @@ jobs:
               echo "  - $(basename "$file") (${size})"
             fi
           done
+          
+          # 设置一个标志，表示找到了固件
+          echo "HAS_FIRMWARE=true" >> $GITHUB_ENV
         else
-          echo "警告：未找到固件文件！"
+          echo "错误：未找到固件文件！"
           echo "检查目录结构:"
           find openwrt/bin/ -type f 2>/dev/null | head -30 || true
-          # 创建一个空文件，避免后续步骤因目录为空而失败
-          touch ./artifact/firmware/NO_FIRMWARE_FOUND.txt
+          echo "HAS_FIRMWARE=false" >> $GITHUB_ENV
+          exit 1
         fi
         
         # 计算编译时间
@@ -487,15 +482,17 @@ jobs:
         HOUR=$(( $SECONDS/3600 )) 
         MIN=$(( ($SECONDS-${HOUR}*3600)/60 )) 
         SEC=$(( $SECONDS-${HOUR}*3600-${MIN}*60 ))
-        echo "BUILD_TIME=${HOUR}时${MIN}分${SEC}秒" >> $GITHUB_ENV
-        echo "编译用时：${HOUR}时${MIN}分${SEC}秒"
+        BUILD_TIME="${HOUR}时${MIN}分${SEC}秒"
+        echo "BUILD_TIME=${BUILD_TIME}" >> $GITHUB_ENV
+        echo "编译用时：${BUILD_TIME}"
 
-    - name: 上传固件文件
-      if: steps.compile.outcome == 'success' && env.UPLOAD_FIRMWARE == 'true'
+    - name: 上传固件到Artifacts
+      if: success() && env.HAS_FIRMWARE == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: ${{matrix.target}}_OpenWrt_firmware_${{ env.FILE_TIME }}
         path: ./artifact/firmware/
+        retention-days: 7
 
     - name: 上传编译日志
       if: failure()
@@ -503,95 +500,120 @@ jobs:
       with:
         name: build_log_${{ github.run_id }}
         path: openwrt/build.log
+        retention-days: 7
 
     - name: 上传固件信息
-      if: steps.compile.outcome == 'success' && env.UPLOAD_CONFIG == 'true'
+      if: success() && env.HAS_FIRMWARE == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: ${{matrix.target}}_OpenWrt_buildinfo_${{ env.FILE_TIME }}
         path: ./artifact/buildinfo/
+        retention-days: 7
+
+    - name: 检查固件文件
+      if: success() && env.HAS_FIRMWARE == 'true'
+      run: |
+        echo "=== 检查artifact/firmware目录 ==="
+        if [ -d "./artifact/firmware" ]; then
+          echo "固件目录内容:"
+          ls -la ./artifact/firmware/
+          echo "文件数量: $(ls -1 ./artifact/firmware/ | wc -l)"
+          
+          # 检查文件大小
+          for file in ./artifact/firmware/*; do
+            if [ -f "$file" ]; then
+              size=$(du -h "$file" | cut -f1)
+              echo "文件: $(basename "$file") 大小: ${size}"
+            fi
+          done
+        else
+          echo "错误：artifact/firmware目录不存在"
+        fi
 
     - name: 自动发布固件到 Releases
-      uses: ncipollo/release-action@main
-      if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
+      uses: ncipollo/release-action@v1
+      if: success() && env.HAS_FIRMWARE == 'true' && env.UPLOAD_RELEASE == 'true'
       with:
         name: ${{ env.FILE_TIME1 }} 「 ${{ env.FIRMWARE_MESSAGE }} 」
         tag: ${{ env.FILE_TIME2 }}-${{matrix.target}}
         token: ${{ secrets.MY_GITHUB_TOKEN }}
         body: |            
-            ★  源码 : ${{ env.REPO_URL }}
-            ★  分支 : ${{ env.REPO_BRANCH }}
-            ★  感谢源码作者无私分享！
+            ★ 源码: ${{ env.REPO_URL }}
+            ★ 分支: ${{ env.REPO_BRANCH }}
+            ★ 感谢源码作者无私分享！
 
-            🖥 内核版本：${{ env.KERNEL_PATCHVER }}
+            🖥 内核版本: ${{ env.KERNEL_PATCHVER }}
 
-            🎈 编译时间：${{ env.FILE_TIME1 }}
+            🎈 编译时间: ${{ env.FILE_TIME1 }}
 
-            ⏰ 编译用时：${{ env.BUILD_TIME }}
+            ⏰ 编译用时: ${{ env.BUILD_TIME }}
 
-            📁 固件格式：包含 EXT4 和 SquashFS 两种文件系统
+            📁 固件格式: 包含 EXT4 和 SquashFS 两种文件系统
             
             🎉 [ ${{ env.FIRMWARE_MESSAGE }} ]固件下载
 
             ━━━━━━━━━━━━━━━━━━━━
 
             =========================================
-
-        artifacts: ./artifact/firmware/*
+        artifacts: "./artifact/firmware/*"
+        draft: false
+        prerelease: false
 
     - name: 删除运行记录
+      if: success() && env.HAS_FIRMWARE == 'true' && env.UPLOAD_RELEASE == 'true'
       uses: Mattraks/delete-workflow-runs@v2
       with:
         token: ${{ secrets.MY_GITHUB_TOKEN }}
         repository: ${{ github.repository }}
-        retain_days: 30     #保留最后多少记录不删除
+        retain_days: 30
         keep_minimum_runs: 0
 
     - name: 删除自动发布的旧固件
+      if: success() && env.HAS_FIRMWARE == 'true' && env.UPLOAD_RELEASE == 'true'
       uses: shidahuilang/delete-older-releases@main
-      if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
       with:
-        keep_latest: 20         #保留多少个releases不删除
+        keep_latest: 20
         delete_tags: true
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
 
     - name: 编译成功信息通知-Telegram
-      if: steps.compile.outcome == 'success' && env.TELEGRAM_BOT == 'true'
+      if: success() && env.HAS_FIRMWARE == 'true' && env.TELEGRAM_BOT == 'true'
       run: |
         # 获取固件列表
         FIRMWARE_LIST=""
         if [ -d "./artifact/firmware" ]; then
-          FIRMWARE_LIST=$(cd ./artifact/firmware && ls -1 *.img.gz *.bin 2>/dev/null | head -10 | tr '\n' '\n' || echo "无固件文件")
+          FIRMWARE_LIST=$(cd ./artifact/firmware && ls -1 *.img.gz *.bin 2>/dev/null | head -10 | while read line; do echo "    - $line"; done || echo "无固件文件")
         fi
         
         # 统计不同类型的固件
         EXT4_COUNT=0
         SQUASHFS_COUNT=0
         if [ -d "./artifact/firmware" ]; then
-          EXT4_COUNT=$(cd ./artifact/firmware && ls -1 *ext4* 2>/dev/null | wc -l)
-          SQUASHFS_COUNT=$(cd ./artifact/firmware && ls -1 *squashfs* 2>/dev/null | wc -l)
+          EXT4_COUNT=$(cd ./artifact/firmware && ls -1 *ext4* 2>/dev/null | wc -l || echo 0)
+          SQUASHFS_COUNT=$(cd ./artifact/firmware && ls -1 *squashfs* 2>/dev/null | wc -l || echo 0)
         fi
         
-        curl "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}&text=
+        MESSAGE="您的${{ env.FIRMWARE_MESSAGE }}固件成功编译完成了！
 
-           您的${{ env.FIRMWARE_MESSAGE }}固件成功编译完成了！
+        🖥 内核版本：${{ env.KERNEL_PATCHVER }}
 
-          🖥 内核版本：${{ env.KERNEL_PATCHVER }}
+        🎈 编译时间：${{ env.FILE_TIME1 }}
 
-          🎈 编译时间：${{ env.FILE_TIME1 }}
+        ⏰ 编译用时：${{ env.BUILD_TIME }}
 
-          ⏰ 编译用时：${{ env.BUILD_TIME }}
+        📊 固件统计：
+        - EXT4格式：${EXT4_COUNT}个
+        - SquashFS格式：${SQUASHFS_COUNT}个
 
-          📊 固件统计：
-          - EXT4格式：${EXT4_COUNT}个
-          - SquashFS格式：${SQUASHFS_COUNT}个
+        主要固件文件：
+        ${FIRMWARE_LIST}
 
-          主要固件文件：
-          ${FIRMWARE_LIST}
+        🎉 发布地址：${{ env.GITHUB_RELEASE }}"
 
-          🎉 发布地址：${{ env.GITHUB_RELEASE }}
-
-          🌴 固件已经编译完成 🎈！！！
-
-          " >/dev/null 2>&1 && echo "ok..."
+        # 发送Telegram消息
+        curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -d text="$MESSAGE" \
+          -d parse_mode="HTML" \
+          >/dev/null 2>&1 && echo "Telegram通知发送成功"

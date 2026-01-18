@@ -242,6 +242,8 @@ cat >> .config <<EOF
 CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_Generic=y
+# 选择目标配置文件 - 这是关键！！！
+CONFIG_TARGET_x86_64_DEVICE_generic=y
 EOF
 
 # 设置固件大小:
@@ -277,7 +279,7 @@ EOF
 # ==================== 文件系统配置 ====================
 # 同时启用 SquashFS 和 EXT4 文件系统支持
 cat >> .config <<EOF
-# 启用 SquashFS 文件系统 (默认已启用)
+# 启用 SquashFS 文件系统
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 
 # 启用 EXT4 文件系统支持
@@ -292,6 +294,18 @@ CONFIG_GRUB_EFI_IMAGES=y
 
 # 启用生成 ext4 格式的根文件系统镜像
 CONFIG_TARGET_ROOTFS_EXT4FS_ROOTFS=y
+
+# 启用生成 squashfs 格式的根文件系统镜像
+CONFIG_TARGET_ROOTFS_SQUASHFS_ROOTFS=y
+
+# 启用 combined 镜像生成
+CONFIG_TARGET_IMAGES_COMBINED=y
+CONFIG_TARGET_IMAGES_COMBINED_EXT4=y
+CONFIG_TARGET_IMAGES_COMBINED_SQUASHFS=y
+
+# 启用 rootfs 镜像生成
+CONFIG_TARGET_IMAGES_ROOTFS_EXT4=y
+CONFIG_TARGET_IMAGES_ROOTFS_SQUASHFS=y
 EOF
 
 # 第三方插件选择:
@@ -373,7 +387,6 @@ cat >> .config <<EOF
 CONFIG_HAS_FPU=y
 EOF
 
-
 # 
 # ●●●●●●●●●●●●●●●●●●●●●●●●固件定制部分结束●●●●●●●●●●●●●●●●●●●●●●●● #
 # 
@@ -406,3 +419,5 @@ echo "=== 检查文件系统配置 ==="
 grep -E "CONFIG_TARGET_ROOTFS_(SQUASHFS|EXT4FS)" .config || echo "文件系统配置未找到"
 grep -E "CONFIG_TARGET_IMAGES_(SQUASHFS|EXT4)" .config || echo "镜像配置未找到"
 grep -E "CONFIG_GRUB_(IMAGES|EFI_IMAGES)" .config || echo "GRUB配置未找到"
+echo "=== 检查目标设备配置 ==="
+grep -E "CONFIG_TARGET_x86_64_DEVICE_" .config || echo "目标设备配置未找到"

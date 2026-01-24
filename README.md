@@ -46,8 +46,7 @@
 　├── ShadowSocksR Plus+<br/>
 　├── EasyTier<br/>
 　├── OpenClash<br/>
-　├── Nps 内网穿透<br/>
-　└── Nikki<br/>
+　└── Nps 内网穿透<br/>
 </details>
 <details>
 <summary><b>├── 网络</b></summary>

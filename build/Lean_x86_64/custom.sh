@@ -54,6 +54,15 @@ if [ -d "$PKG_DIR" ] && [ -n "$(ls -A $PKG_DIR 2>/dev/null)" ]; then
         fi
     done
 
+    # 第三阶段：安装所有架构通用的包 (e.g., luci-i18n-easytier_zh-cn.ipk)
+    # 这些通常是LuCI界面、主题或脚本，它们依赖第一阶段安装的包。
+    for pkg in $PKG_DIR/*_zh-cn.ipk; do
+        if [ -f "$pkg" ]; then
+            echo "安装LuCI应用包: $(basename "$pkg")"
+            opkg install "$pkg" --force-depends
+        fi
+    done    
+
     # 清理现场
     echo "预安装完成，清理临时文件..."
     rm -rf $PKG_DIR

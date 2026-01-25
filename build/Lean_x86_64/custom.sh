@@ -322,6 +322,7 @@ CONFIG_PACKAGE_luci-app-nikki=n #nikki 客户端
 # CONFIG_PACKAGE_luci-app-serverchan=y #微信推送
 CONFIG_PACKAGE_luci-app-eqos=n #IP限速
 CONFIG_PACKAGE_luci-app-easytier=n
+CONFIG_PACKAGE_luci-i18n-easytier-zh-cn=n
 # CONFIG_PACKAGE_luci-app-control-weburl=y #网址过滤
 # CONFIG_PACKAGE_luci-app-smartdns=n #smartdns服务器
 # CONFIG_PACKAGE_luci-app-adguardhome=y #ADguardhome

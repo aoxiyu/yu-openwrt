@@ -145,9 +145,9 @@ jobs:
 
     - name: 缓存加速
       uses: stupidloud/cachewrtbuild@main
-      if: env.CACHE_BUILD == 'false' || (github.event.inputs.CACHE_BUILD == 'false')
+      if: env.CACHE_BUILD == 'true' || (github.event.inputs.CACHE_BUILD == 'true')
       with:
-        ccache: 'false'
+        ccache: 'true'
         prefix: ${{ github.workspace }}/openwrt
 
     - name: 更新时区、编译时间

@@ -103,7 +103,7 @@ else
 fi
 
 #
-sed -i 's#192.168.1.1#172.18.18.222#g' $NET                                                    # 定制默认IP
+# sed -i 's#192.168.1.1#172.18.18.222#g' $NET                                                    # 定制默认IP
 sed -i 's#LEDE#OpenWrt-GanQuanRu#g' $NET                                                     # 修改默认名称为OpenWrt-X86
 sed -i 's@.*CYXluq4wUazHjmCDBCqXF*@#&@g' $ZZZ                                             # 取消系统默认密码
 sed -i "s/LEDE /GanQuanRu build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ              # 增加自己个性名称
@@ -125,6 +125,7 @@ sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' package/base-files/files/etc/banner
 
 cat >> $ZZZ <<-EOF
 # 设置网络-旁路由模式
+uci set network.lan.ipaddr='172.18.18.222'
 uci set network.lan.gateway='172.18.18.2'                     # 旁路由设置 IPv4 网关
 uci set network.lan.dns='223.5.5.5 119.29.29.29'            # 旁路由设置 DNS(多个DNS要用空格分开)
 uci set dhcp.lan.ignore='1'                                  # 旁路由关闭DHCP功能

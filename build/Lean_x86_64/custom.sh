@@ -1,32 +1,210 @@
 #!/bin/bash
 
-# 安装额外依赖软件包
+# ============ 基础配置 ============
+echo "=== 开始自定义配置 ==="
+WORKPATH=$(pwd)
+echo "工作目录: $WORKPATH"
+
+# ============ 创建自定义配置（第一步） ============
+echo "=== 创建自定义网络配置文件 ==="
+
+# 创建必要的目录结构
+mkdir -p files/etc/config
+mkdir -p files/etc/uci-defaults
+mkdir -p files/etc/rc.local
+mkdir -p files/etc/pre_install
+
+# 创建network配置文件 - 这会直接覆盖默认配置
+cat > files/etc/config/network << 'EOF'
+config interface 'loopback'
+    option device 'lo'
+    option proto 'static'
+    option ipaddr '127.0.0.1'
+    option netmask '255.0.0.0'
+
+config globals 'globals'
+    option ula_prefix 'fd4d:fd5c:ea76::/48'
+    option packet_steering '1'
+
+config device
+    option name 'br-lan'
+    option type 'bridge'
+    list ports 'eth0'
+
+config interface 'lan'
+    option device 'br-lan'
+    option proto 'static'
+    option ipaddr '172.18.18.222'   # 主IP地址
+    option netmask '255.255.255.0'
+    option gateway '172.18.18.2'    # 网关（主路由）
+    list dns '223.5.5.5'
+    list dns '119.29.29.29'
+    option delegate '0'
+    option force_link '1'
+
+config interface 'wan'
+    option device 'eth1'
+    option proto 'dhcp'
+    option peerdns '0'
+    option delegate '0'
+
+config interface 'wan6'
+    option device 'eth1'
+    option proto 'dhcpv6'
+    option reqaddress 'try'
+    option reqprefix 'auto'
+    option delegate '0'
+EOF
+
+# 创建dhcp配置文件（旁路由模式关闭DHCP）
+cat > files/etc/config/dhcp << 'EOF'
+config dnsmasq
+    option domainneeded '1'
+    option boguspriv '1'
+    option filterwin2k '0'
+    option localise_queries '1'
+    option rebind_protection '1'
+    option rebind_localhost '1'
+    option local '/lan/'
+    option domain 'lan'
+    option expandhosts '1'
+    option nonegcache '0'
+    option authoritative '1'
+    option readethers '1'
+    option leasefile '/tmp/dhcp.leases'
+    option resolvfile '/tmp/resolv.conf.auto'
+    option localservice '1'
+    option ednspacket_max '1232'
+    option filter_aaaa '1'  # 禁用IPv6解析
+
+config dhcp 'lan'
+    option interface 'lan'
+    option start '100'
+    option limit '150'
+    option leasetime '12h'
+    option dhcpv6 'disabled'
+    option ra 'disabled'
+    option ignore '1'         # 关键：关闭DHCP服务
+
+config dhcp 'wan'
+    option interface 'wan'
+    option ignore '1'
+
+config odhcpd 'odhcpd'
+    option maindhcp '0'
+    option leasefile '/tmp/hosts/odhcpd'
+    option leasetrigger '/usr/sbin/odhcpd-update'
+    option loglevel '4'
+EOF
+
+# 创建firewall配置文件
+cat > files/etc/config/firewall << 'EOF'
+config defaults
+    option syn_flood '1'
+    option input 'ACCEPT'
+    option output 'ACCEPT'
+    option forward 'REJECT'
+    option disable_ipv6 '1'
+
+config zone
+    option name 'lan'
+    list network 'lan'
+    option input 'ACCEPT'
+    option output 'ACCEPT'
+    option forward 'ACCEPT'
+    option masq '1'
+    option mtu_fix '1'
+
+config zone
+    option name 'wan'
+    list network 'wan'
+    list network 'wan6'
+    option input 'REJECT'
+    option output 'ACCEPT'
+    option forward 'REJECT'
+    option masq '1'
+    option mtu_fix '1'
+
+config forwarding
+    option src 'lan'
+    option dest 'wan'
+
+config rule
+    option name 'Allow-DHCP-Renew'
+    option src 'wan'
+    option proto 'udp'
+    option dest_port '68'
+    option target 'ACCEPT'
+    option family 'ipv4'
+
+config rule
+    option name 'Allow-Ping'
+    option src 'wan'
+    option proto 'icmp'
+    option icmp_type 'echo-request'
+    option family 'ipv4'
+    option target 'ACCEPT'
+
+config include
+    option path '/etc/firewall.user'
+EOF
+
+# 创建rc.local文件，确保网络配置生效
+cat > files/etc/rc.local << 'EOF'
+#!/bin/sh -e
+#
+# rc.local - 开机自启动脚本
+#
+
+# 等待系统初始化完成
+sleep 3
+
+# 重启网络服务确保配置生效
+echo "应用网络配置..."
+/etc/init.d/network restart >/dev/null 2>&1
+
+# 重启防火墙
+echo "应用防火墙配置..."
+/etc/init.d/firewall restart >/dev/null 2>&1
+
+# 确保DHCP服务关闭
+echo "关闭DHCP服务..."
+/etc/init.d/dnsmasq disable >/dev/null 2>&1
+/etc/init.d/dnsmasq stop >/dev/null 2>&1
+
+# 设置正确的DNS
+echo "设置DNS..."
+echo "nameserver 223.5.5.5" > /tmp/resolv.conf.auto
+echo "nameserver 119.29.29.29" >> /tmp/resolv.conf.auto
+
+exit 0
+EOF
+
+chmod +x files/etc/rc.local
+
+echo "=== 自定义配置文件创建完成 ==="
+
+# ============ 安装额外依赖软件包 ============
 # sudo -E apt-get -y install rename
 
-# 更新feeds文件
-# sed -i 's@#src-git helloworld@src-git helloworld@g' feeds.conf.default # 启用helloworld
-# sed -i 's@src-git luci@# src-git luci@g' feeds.conf.default # 禁用18.06Luci
-# sed -i 's@## src-git luci@src-git luci@g' feeds.conf.default # 启用23.05Luci
+# ============ 更新feeds文件 ============
 cat feeds.conf.default
 
-# 添加第三方软件包
+# ============ 添加第三方软件包 ============
 git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-package
 
-# 更新并安装源
+# ============ 更新并安装源 ============
 ./scripts/feeds clean
 ./scripts/feeds update -a && ./scripts/feeds install -a -f
 
-# 删除部分默认包
+# ============ 删除部分默认包 ============
 rm -rf feeds/luci/applications/luci-app-qbittorrent
 rm -rf feeds/luci/applications/luci-app-openclash
 rm -rf feeds/luci/themes/luci-theme-argon
 
-# 创建预安装目录和脚本
+# ============ 创建预安装脚本 ============
 echo "创建预安装目录和脚本..."
-mkdir -p files/etc/pre_install
-mkdir -p files/etc/uci-defaults
 
-# 创建预安装脚本
 cat > files/etc/uci-defaults/98-pre_install << 'EOF'
 #!/bin/sh
 
@@ -36,30 +214,27 @@ if [ -d "$PKG_DIR" ] && [ -n "$(ls -A $PKG_DIR 2>/dev/null)" ]; then
 
     echo "开始安装预置IPK包..."
 
-    # 第一阶段：优先安装架构特定的包 (e.g., npc_0.26.26-r16_x86_64.ipk)
-    # 这些通常是基础程序或内核模块，LuCI包依赖它们。
-    for pkg in $PKG_DIR/*_*.ipk; do # 模式匹配包含下划线_的包名
-        if [ -f "$pkg" ]; then # 确保是文件，防止没匹配到时循环到通配符本身
+    # 第一阶段：优先安装架构特定的包
+    for pkg in $PKG_DIR/*_*.ipk; do
+        if [ -f "$pkg" ]; then
             echo "优先安装基础包: $(basename "$pkg")"
-            opkg install "$pkg" --force-depends
+            opkg install "$pkg" --force-depends >/dev/null 2>&1
         fi
     done
 
-    # 第二阶段：安装所有架构通用的包 (e.g., luci-app-npc_all.ipk)
-    # 这些通常是LuCI界面、主题或脚本，它们依赖第一阶段安装的包。
+    # 第二阶段：安装所有架构通用的包
     for pkg in $PKG_DIR/*_all.ipk; do
         if [ -f "$pkg" ]; then
             echo "安装LuCI应用包: $(basename "$pkg")"
-            opkg install "$pkg" --force-depends
+            opkg install "$pkg" --force-depends >/dev/null 2>&1
         fi
     done
 
-    # 第三阶段：安装所有架构通用的包 (e.g., luci-i18n-easytier_zh-cn.ipk)
-    # 这些通常是LuCI界面、主题或脚本，它们依赖第一阶段安装的包。
+    # 第三阶段：安装语言包
     for pkg in $PKG_DIR/*_zh-cn.ipk; do
         if [ -f "$pkg" ]; then
-            echo "安装LuCI应用包: $(basename "$pkg")"
-            opkg install "$pkg" --force-depends
+            echo "安装语言包: $(basename "$pkg")"
+            opkg install "$pkg" --force-depends >/dev/null 2>&1
         fi
     done    
 
@@ -71,398 +246,251 @@ fi
 exit 0
 EOF
 
-# 设置预安装脚本权限
 chmod +x files/etc/uci-defaults/98-pre_install
 
-# 下载预安装的IPK包
+# ============ 下载预安装的IPK包 ============
 echo "下载预安装IPK包..."
 # 示例：下载npc和luci-app-npc
 wget -O files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk https://example.com/path/to/npc_0.26.26-r16_x86_64.ipk || echo "npc包下载失败，将继续编译"
 wget -O files/etc/pre_install/luci-app-npc_all.ipk https://example.com/path/to/luci-app-npc_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
 
-# 检查下载是否成功
-if [ ! -f "files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk" ]; then
-    echo "警告: npc包下载失败! 预安装将跳过此包"
-fi
-
-if [ ! -f "files/etc/pre_install/luci-app-npc_all.ipk" ]; then
-    echo "警告: luci-app-npc包下载失败! 预安装将跳过此包"
-fi
-
-# 自定义定制选项
-NET="package/base-files/luci2/bin/config_generate"
+# ============ 自定义定制选项 ============
+NET="package/base-files/files/bin/config_generate"
 ZZZ="package/lean/default-settings/files/zzz-default-settings"
+
+# 检查NET文件是否存在
+if [ ! -f "$NET" ]; then
+    echo "警告: 找不到 $NET，尝试其他路径..."
+    NET2="package/base-files/files/etc/board.d/99-default_network"
+    if [ -f "$NET2" ]; then
+        NET="$NET2"
+        echo "使用备用路径: $NET"
+    else
+        echo "警告: 无法找到网络配置文件"
+    fi
+fi
+
 # 读取内核版本
-KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')
-KERNEL_TESTING_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_TESTING_PATCHVER | sed 's/^.\{25\}//g')
-if [[ $KERNEL_TESTING_PATCHVER > $KERNEL_PATCHVER ]]; then
-#  sed -i "s/$KERNEL_PATCHVER/$KERNEL_TESTING_PATCHVER/g" target/linux/x86/Makefile        # 修改内核版本为最新
-  echo "内核版本已更新为 $KERNEL_TESTING_PATCHVER"
-else
-  echo "内核版本不需要更新"
+if [ -f "target/linux/x86/Makefile" ]; then
+    KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')
+    KERNEL_TESTING_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_TESTING_PATCHVER | sed 's/^.\{25\}//g')
+    if [[ $KERNEL_TESTING_PATCHVER > $KERNEL_PATCHVER ]]; then
+        echo "内核版本已更新为 $KERNEL_TESTING_PATCHVER"
+    else
+        echo "内核版本不需要更新"
+    fi
 fi
 
-#
-sed -i 's#192.168.1.1#172.18.18.222#g' $NET                                                    # 定制默认IP
-sed -i 's#LEDE#OpenWrt-GanQuanRu#g' $NET                                                     # 修改默认名称为OpenWrt-X86
-sed -i 's@.*CYXluq4wUazHjmCDBCqXF*@#&@g' $ZZZ                                             # 取消系统默认密码
-sed -i "s/LEDE /GanQuanRu build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ              # 增加自己个性名称
-echo "uci set luci.main.mediaurlbase=/luci-static/argon" >> $ZZZ                      # 设置默认主题(如果编译可会自动修改默认主题的，有可能会失效)
+# ============ 修改系统配置 ============
+# 注意：这里我们不修改默认IP，因为已经在files目录中配置了
+# 只修改其他设置
 
-# ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● #
+# 修改默认名称
+if [ -f "$NET" ]; then
+    sed -i 's#LEDE#OpenWrt-GanQuanRu#g' $NET
+    echo "已修改默认名称为 OpenWrt-GanQuanRu"
+fi
 
-sed -i 's#localtime  = os.date()#localtime  = os.date("%Y年%m月%d日") .. " " .. translate(os.date("%A")) .. " " .. os.date("%X")#g' package/lean/autocore/files/*/index.htm               # 修改默认时间格式
-sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' package/base-files/files/etc/banner               # 自定义banner显示
-# sed -i 's@list listen_https@# list listen_https@g' package/network/services/uhttpd/files/uhttpd.config               # 停止监听443端口
-# sed -i 's#option commit_interval 24h#option commit_interval 10m#g' feeds/packages/net/nlbwmon/files/nlbwmon.config               # 修改流量统计写入为10分钟
-# sed -i 's#option database_generations 10#option database_generations 3#g' feeds/packages/net/nlbwmon/files/nlbwmon.config               # 修改流量统计数据周期
-# sed -i 's#option database_directory /var/lib/nlbwmon#option database_directory /etc/config/nlbwmon_data#g' feeds/packages/net/nlbwmon/files/nlbwmon.config               # 修改流量统计数据存放默认位置
-# sed -i 's#interval: 5#interval: 1#g' feeds/luci/applications/luci-app-wrtbwmon/htdocs/luci-static/wrtbwmon/wrtbwmon.js               # wrtbwmon默认刷新时间更改为1秒
+# 修改默认密码
+if [ -f "$ZZZ" ]; then
+    sed -i 's@.*CYXluq4wUazHjmCDBCqXF*@#&@g' $ZZZ
+    echo "已取消系统默认密码"
+    
+    # 添加个性名称
+    CURRENT_DATE=$(TZ=UTC-8 date "+%Y.%m.%d")
+    sed -i "s/LEDE /GanQuanRu build $CURRENT_DATE @ LEDE /g" $ZZZ
+    echo "已添加个性名称"
+    
+    # 设置默认主题
+    echo "uci set luci.main.mediaurlbase=/luci-static/argon" >> $ZZZ
+    echo "已设置默认主题为argon"
+fi
 
-# ●●●●●●●●●●●●●●●●●●●●●●●●定制部分●●●●●●●●●●●●●●●●●●●●●●●● #
+# ============ 其他系统定制 ============
+# 修改默认时间格式
+find package/lean/autocore/files/ -name "index.htm" -type f 2>/dev/null | while read file; do
+    if [ -f "$file" ]; then
+        sed -i 's#localtime  = os.date()#localtime  = os.date("%Y年%m月%d日") .. " " .. translate(os.date("%A")) .. " " .. os.date("%X")#g' "$file"
+    fi
+done
 
-# ================ 网络设置 =======================================
+# 自定义banner显示
+BANNER_FILE="package/base-files/files/etc/banner"
+if [ -f "$BANNER_FILE" ]; then
+    sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' "$BANNER_FILE"
+fi
 
-cat >> $ZZZ <<-EOF
-# 设置网络-旁路由模式
-uci set network.lan.gateway='172.18.18.2'                     # 旁路由设置 IPv4 网关
-uci set network.lan.dns='223.5.5.5 119.29.29.29'            # 旁路由设置 DNS(多个DNS要用空格分开)
-uci set dhcp.lan.ignore='1'                                  # 旁路由关闭DHCP功能
-uci delete network.lan.type                                  # 旁路由桥接模式-禁用
-uci set network.lan.delegate='0'                             # 去掉LAN口使用内置的 IPv6 管理(若用IPV6请把'0'改'1')
-uci set dhcp.@dnsmasq[0].filter_aaaa='0'                     # 禁止解析 IPv6 DNS记录(若用IPV6请把'1'改'0')
+# ============ 添加基本配置到ZZZ ============
+if [ -f "$ZZZ" ]; then
+    cat >> $ZZZ << 'EOF'
+# ============ 基本系统设置 ============
+# 设置时区
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
 
-# 设置防火墙-旁路由模式
-uci set firewall.@defaults[0].syn_flood='0'                  # 禁用 SYN-flood 防御
-uci set firewall.@defaults[0].flow_offloading='0'           # 禁用基于软件的NAT分载
-uci set firewall.@defaults[0].flow_offloading_hw='0'       # 禁用基于硬件的NAT分载
-uci set firewall.@defaults[0].fullcone='0'                   # 禁用 FullCone NAT
-uci set firewall.@defaults[0].fullcone6='0'                  # 禁用 FullCone NAT6
-uci set firewall.@zone[0].masq='1'                             # 启用LAN口 IP 动态伪装
+# 设置NTP服务器
+uci set system.ntp.server='0.openwrt.pool.ntp.org 1.openwrt.pool.ntp.org 2.openwrt.pool.ntp.org 3.openwrt.pool.ntp.org'
 
-# 旁路IPV6需要全部禁用
-uci del network.lan.ip6assign                                 # IPV6分配长度-禁用
-uci del dhcp.lan.ra                                             # 路由通告服务-禁用
-uci del dhcp.lan.dhcpv6                                        # DHCPv6 服务-禁用
-uci del dhcp.lan.ra_management                               # DHCPv6 模式-禁用
+# 设置语言
+uci set luci.main.lang='zh_cn'
 
-# 如果有用IPV6的话,可以使用以下命令创建IPV6客户端(LAN口)（去掉全部代码uci前面#号生效）
-uci set network.ipv6=interface
-uci set network.ipv6.proto='dhcpv6'
-uci set network.ipv6.ifname='@lan'
-uci set network.ipv6.reqaddress='try'
-uci set network.ipv6.reqprefix='auto'
-uci set firewall.@zone[0].network='lan ipv6'
-
-uci commit dhcp
-uci commit network
-uci commit firewall
-
+# 提交更改
+uci commit system
+uci commit luci
 EOF
-
-# =======================================================
-
-# 检查 OpenClash 是否启用编译
-if grep -qE '^(CONFIG_PACKAGE_luci-app-openclash=n|# CONFIG_PACKAGE_luci-app-openclash=)' "${WORKPATH}/$CUSTOM_SH"; then
-  # OpenClash 未启用，不执行任何操作
-  echo "OpenClash 未启用编译"
-  echo 'rm -rf /etc/openclash' >> $ZZZ
-else
-  # OpenClash 已启用，执行配置
-  if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" "${WORKPATH}/$CUSTOM_SH"; then
-    # 判断系统架构
-    arch=$(uname -m)  # 获取系统架构
-    case "$arch" in
-      x86_64)
-        arch="amd64"
-        ;;
-      aarch64|arm64)
-        arch="arm64"
-        ;;
-    esac
-    # OpenClash Meta 开始配置内核
-    echo "正在执行：为OpenClash下载内核"
-    mkdir -p $HOME/clash-core
-    mkdir -p $HOME/files/etc/openclash/core
-    cd $HOME/clash-core
-    # 下载Meta内核
-    wget -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
-    if [[ $? -ne 0 ]];then
-      wget -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
-    else
-      echo "OpenClash Meta内核压缩包下载成功，开始解压文件"
-    fi
-    tar -zxvf clash-linux-$arch.tar.gz
-    if [[ -f "$HOME/clash-core/clash" ]]; then
-      mv -f $HOME/clash-core/clash $HOME/files/etc/openclash/core/clash_meta
-      chmod +x $HOME/files/etc/openclash/core/clash_meta
-      echo "OpenClash Meta内核配置成功"
-    else
-      echo "OpenClash Meta内核配置失败"
-    fi
-    rm -rf $HOME/clash-core/clash-linux-$arch.tar.gz
-    rm -rf $HOME/clash-core
-  fi
 fi
 
-# =======================================================
+# ============ OpenClash 配置 ============
+# 检查.config文件是否存在
+CONFIG_FILE=".config"
+if [ ! -f "$CONFIG_FILE" ]; then
+    CONFIG_FILE="$WORKPATH/.config"
+fi
 
-# 修改退出命令到最后
-cd $HOME && sed -i '/exit 0/d' $ZZZ && echo "exit 0" >> $ZZZ
+if [ -f "$CONFIG_FILE" ] && grep -q "CONFIG_PACKAGE_luci-app-openclash=y" "$CONFIG_FILE"; then
+    echo "OpenClash 已启用，配置内核..."
+    
+    # 判断系统架构
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64)
+            arch="amd64"
+            ;;
+        aarch64|arm64)
+            arch="arm64"
+            ;;
+        *)
+            arch="amd64"  # 默认
+            ;;
+    esac
+    
+    # 创建目录
+    mkdir -p files/etc/openclash/core
+    
+    # 下载Meta内核
+    echo "下载OpenClash Meta内核..."
+    cd files/etc/openclash/core
+    
+    # 尝试多个下载源
+    wget --timeout=30 --tries=2 -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz || \
+    wget --timeout=30 --tries=2 -q https://cdn.jsdelivr.net/gh/vernesong/OpenClash@core/meta/clash-linux-$arch.tar.gz || \
+    wget --timeout=30 --tries=2 -q https://ghproxy.com/https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
+    
+    if [ -f "clash-linux-$arch.tar.gz" ]; then
+        echo "OpenClash Meta内核下载成功，开始解压..."
+        tar -zxvf clash-linux-$arch.tar.gz >/dev/null 2>&1
+        if [ -f "clash" ]; then
+            mv clash clash_meta
+            chmod +x clash_meta
+            echo "✅ OpenClash Meta内核配置成功"
+        else
+            echo "⚠️ OpenClash Meta内核解压失败"
+        fi
+        rm -f clash-linux-$arch.tar.gz
+    else
+        echo "⚠️ OpenClash Meta内核下载失败"
+    fi
+    
+    cd - >/dev/null
+else
+    echo "OpenClash 未启用编译"
+    if [ -f "$ZZZ" ]; then
+        echo 'rm -rf /etc/openclash 2>/dev/null' >> $ZZZ
+    fi
+fi
 
-# ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● #
+# ============ 清理ZZZ文件 ============
+if [ -f "$ZZZ" ]; then
+    # 移除多余的exit 0
+    sed -i '/exit 0/d' $ZZZ
+    # 确保最后有exit 0
+    echo "exit 0" >> $ZZZ
+fi
 
+# ============ 验证配置 ============
+echo ""
+echo "=== 验证自定义配置 ==="
+echo "1. 检查network配置:"
+if [ -f "files/etc/config/network" ]; then
+    echo "✅ 自定义network配置存在"
+    echo "   IP地址: $(grep "option ipaddr" files/etc/config/network | head -1)"
+else
+    echo "❌ 自定义network配置不存在"
+fi
 
-# 创建自定义配置文件
+echo ""
+echo "2. 检查dhcp配置:"
+if [ -f "files/etc/config/dhcp" ]; then
+    echo "✅ 自定义dhcp配置存在"
+    echo "   DHCP状态: $(grep "option ignore" files/etc/config/dhcp | head -1)"
+else
+    echo "❌ 自定义dhcp配置不存在"
+fi
 
+echo ""
+echo "3. 检查文件结构:"
+echo "   files/etc/config/network: $(ls -la files/etc/config/network 2>/dev/null | wc -l) 个文件"
+echo "   files/etc/config/dhcp: $(ls -la files/etc/config/dhcp 2>/dev/null | wc -l) 个文件"
+echo "   files/etc/config/firewall: $(ls -la files/etc/config/firewall 2>/dev/null | wc -l) 个文件"
+
+echo ""
+echo "=== 自定义配置完成 ==="
+
+# ============ 创建.config文件 ============
 cd $WORKPATH
 touch ./.config
 
-#
-# ●●●●●●●●●●●●●●●●●●●●●●●●固件定制部分●●●●●●●●●●●●●●●●●●●●●●●●
-# 
-
-# 
-# 如果不对本区块做出任何编辑, 则生成默认配置固件. 
-# 
-
-# 以下为定制化固件选项和说明:
-#
-
-#
-# 有些插件/选项是默认开启的, 如果想要关闭, 请参照以下示例进行编写:
-# 
-#          ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-#        ■|  # 取消编译VMware镜像:                    |■
-#        ■|  cat >> .config <<EOF                   |■
-#        ■|  # CONFIG_VMDK_IMAGES is not set        |■
-#        ■|  EOF                                    |■
-#          ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-#
-
-# 
-# 以下是一些提前准备好的一些插件选项.
-# 直接取消注释相应代码块即可应用. 不要取消注释代码块上的汉字说明.
-# 如果不需要代码块里的某一项配置, 只需要删除相应行.
-#
-# 如果需要其他插件, 请按照示例自行添加.
-# 注意, 只需添加依赖链顶端的包. 如果你需要插件 A, 同时 A 依赖 B, 即只需要添加 A.
-# 
-# 无论你想要对固件进行怎样的定制, 都需要且只需要修改 EOF 回环内的内容.
-# 
-
-# 编译x64固件:
+# ============ 固件配置 ============
 cat >> .config <<EOF
 CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_Generic=y
-EOF
-
-# 设置固件大小:
-cat >> .config <<EOF
 CONFIG_TARGET_KERNEL_PARTSIZE=16
 CONFIG_TARGET_ROOTFS_PARTSIZE=360
-EOF
-
-# 固件压缩:
-cat >> .config <<EOF
 CONFIG_TARGET_IMAGES_GZIP=y
-EOF
-
-# 编译UEFI固件:
-cat >> .config <<EOF
 CONFIG_EFI_IMAGES=y
-EOF
-
-# IPv6支持:
-cat >> .config <<EOF
 CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
 CONFIG_PACKAGE_ipv6helper=y
-EOF
-
-# 编译PVE/KVM、Hyper-V、VMware镜像以及镜像填充
-cat >> .config <<EOF
 CONFIG_QCOW2_IMAGES=n
 CONFIG_VHDX_IMAGES=n
 CONFIG_VMDK_IMAGES=n
 CONFIG_TARGET_IMAGES_PAD=y
-EOF
-
-# 多文件系统支持:
-# cat >> .config <<EOF
-# CONFIG_PACKAGE_kmod-fs-nfs=y
-# CONFIG_PACKAGE_kmod-fs-nfs-common=y
-# CONFIG_PACKAGE_kmod-fs-nfs-v3=y
-# CONFIG_PACKAGE_kmod-fs-nfs-v4=y
-# CONFIG_PACKAGE_kmod-fs-ntfs=y
-# CONFIG_PACKAGE_kmod-fs-squashfs=y
-# EOF
-
-# USB3.0支持:
-# cat >> .config <<EOF
-# CONFIG_PACKAGE_kmod-usb-ohci=y
-# CONFIG_PACKAGE_kmod-usb-ohci-pci=y
-# CONFIG_PACKAGE_kmod-usb2=y
-# CONFIG_PACKAGE_kmod-usb2-pci=y
-# CONFIG_PACKAGE_kmod-usb3=y
-# EOF
-
-# 多线多拨:
-# cat >> .config <<EOF
-# CONFIG_PACKAGE_luci-app-syncdial=y #多拨虚拟WAN
-# CONFIG_PACKAGE_luci-app-mwan3=y #MWAN负载均衡
-# CONFIG_PACKAGE_luci-app-mwan3helper=n #MWAN3分流助手
-# EOF
-
-# 第三方插件选择:
-cat >> .config <<EOF
-CONFIG_PACKAGE_luci-app-oaf=n #应用过滤
-CONFIG_PACKAGE_luci-app-openclash=y #OpenClash客户端
-CONFIG_PACKAGE_luci-app-nikki=n #nikki 客户端
-# CONFIG_PACKAGE_luci-app-serverchan=y #微信推送
-CONFIG_PACKAGE_luci-app-eqos=n #IP限速
+CONFIG_PACKAGE_luci-app-openclash=y
 CONFIG_PACKAGE_luci-app-easytier=y
-# CONFIG_PACKAGE_luci-app-control-weburl=y #网址过滤
-# CONFIG_PACKAGE_luci-app-smartdns=n #smartdns服务器
-# CONFIG_PACKAGE_luci-app-adguardhome=y #ADguardhome
-CONFIG_PACKAGE_luci-app-poweroff=n #关机（增加关机功能）
-# CONFIG_PACKAGE_luci-app-argon-config=y #argon主题设置
-# CONFIG_PACKAGE_luci-app-autotimeset=y #定时重启系统，网络
-# CONFIG_PACKAGE_luci-app-ddnsto=y #小宝开发的DDNS.to内网穿透
-# CONFIG_PACKAGE_ddnsto=y #DDNS.to内网穿透软件包
-EOF
-
-# ShadowsocksR插件:
-cat >> .config <<EOF
-CONFIG_PACKAGE_luci-app-ssr-plus=y
-# CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_SagerNet_Core is not set
-EOF
-
-# Passwall插件:
-cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-passwall=y
-# CONFIG_PACKAGE_luci-app-passwall2=y
-# CONFIG_PACKAGE_naiveproxy=y
 CONFIG_PACKAGE_chinadns-ng=y
-# CONFIG_PACKAGE_brook=y
 CONFIG_PACKAGE_trojan-go=y
 CONFIG_PACKAGE_xray-plugin=y
-CONFIG_PACKAGE_shadowsocks-rust-sslocal=n
-EOF
-
-# Turbo ACC 网络加速:
-cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-turboacc=y
-EOF
-
-# 常用LuCI插件:
-cat >> .config <<EOF
-# CONFIG_PACKAGE_luci-app-adbyby-plus=n #adbyby去广告
-# CONFIG_PACKAGE_luci-app-webadmin=n #Web管理页面设置
-CONFIG_PACKAGE_luci-app-ddns=n #DDNS服务
-CONFIG_PACKAGE_luci-app-vlmcsd=n
-CONFIG_DEFAULT_luci-app-vlmcsd=n #KMS激活服务器
-CONFIG_PACKAGE_luci-app-filetransfer=y #系统-文件传输
-CONFIG_PACKAGE_luci-app-autoreboot=n #定时重启
-CONFIG_PACKAGE_luci-app-upnp=n #通用即插即用UPnP(端口自动转发)
-CONFIG_PACKAGE_luci-app-arpbind=n #IP/MAC绑定
-CONFIG_PACKAGE_luci-app-accesscontrol=n #上网时间控制
-CONFIG_PACKAGE_luci-app-wol=n #网络唤醒
-CONFIG_PACKAGE_luci-app-nps=n #nps内网穿透
-CONFIG_PACKAGE_luci-app-frpc=n #Frp内网穿透
-CONFIG_PACKAGE_luci-app-nlbwmon=n #宽带流量监控
-CONFIG_PACKAGE_luci-app-wrtbwmon=y #实时流量监测
-CONFIG_PACKAGE_luci-app-haproxy-tcp=n #Haproxy负载均衡
-CONFIG_PACKAGE_luci-app-diskman=n #磁盘管理磁盘信息
-CONFIG_PACKAGE_luci-app-transmission=n #Transmission离线下载
-CONFIG_PACKAGE_luci-app-qbittorrent=n #qBittorrent离线下载
-CONFIG_PACKAGE_luci-app-amule=n #电驴离线下载
-CONFIG_PACKAGE_luci-app-xlnetacc=n #迅雷快鸟
-CONFIG_PACKAGE_luci-app-zerotier=n #zerotier内网穿透
-CONFIG_PACKAGE_luci-app-hd-idle=n #磁盘休眠
-CONFIG_PACKAGE_luci-app-unblockmusic=n #解锁网易云灰色歌曲
-CONFIG_PACKAGE_luci-app-airplay2=n #Apple AirPlay2音频接收服务器
-CONFIG_PACKAGE_luci-app-music-remote-center=n #PCHiFi数字转盘遥控
-CONFIG_PACKAGE_luci-app-usb-printer=n #USB打印机
-CONFIG_PACKAGE_luci-app-sqm=n #SQM智能队列管理
-CONFIG_PACKAGE_luci-app-jd-dailybonus=n #京东签到服务
-CONFIG_PACKAGE_luci-app-uugamebooster=n #UU游戏加速器
-CONFIG_PACKAGE_luci-app-dockerman=n #Docker管理
-CONFIG_PACKAGE_luci-app-ttyd=n #ttyd
-CONFIG_PACKAGE_luci-app-wireguard=n #wireguard端
-#
-# VPN相关插件(禁用):
-#
-CONFIG_PACKAGE_luci-app-v2ray-server=n #V2ray服务器
-CONFIG_PACKAGE_luci-app-pptp-server=n #PPTP VPN 服务器
-CONFIG_PACKAGE_luci-app-ipsec-vpnd=n #ipsec VPN服务
-CONFIG_PACKAGE_luci-app-openvpn-server=n #openvpn服务
-CONFIG_PACKAGE_luci-app-softethervpn=n #SoftEtherVPN服务器
-#
-# 文件共享相关(禁用):
-#
-CONFIG_PACKAGE_luci-app-minidlna=n #miniDLNA服务
-CONFIG_PACKAGE_luci-app-vsftpd=n #FTP 服务器
-CONFIG_PACKAGE_luci-app-samba=n #网络共享
-CONFIG_PACKAGE_autosamba=n #网络共享
-CONFIG_PACKAGE_samba36-server=n #网络共享
-EOF
-
-# LuCI主题:
-cat >> .config <<EOF
+CONFIG_PACKAGE_luci-app-ssr-plus=y
+CONFIG_PACKAGE_luci-app-filetransfer=y
+CONFIG_PACKAGE_luci-app-wrtbwmon=y
 CONFIG_PACKAGE_luci-theme-argon=y
-CONFIG_PACKAGE_luci-theme-edge=n
-EOF
-
-# 常用软件包:
-cat >> .config <<EOF
 CONFIG_PACKAGE_firewall4=y
 CONFIG_PACKAGE_curl=y
 CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_nano=y
-# CONFIG_PACKAGE_screen=y
-# CONFIG_PACKAGE_tree=y
-# CONFIG_PACKAGE_vim-fuller=y
 CONFIG_PACKAGE_wget=y
 CONFIG_PACKAGE_bash=y
 CONFIG_PACKAGE_kmod-tun=y
-CONFIG_PACKAGE_snmpd=y
 CONFIG_PACKAGE_libcap=y
 CONFIG_PACKAGE_libcap-bin=y
 CONFIG_PACKAGE_ip6tables-mod-nat=y
 CONFIG_PACKAGE_iptables-mod-extra=y
-CONFIG_PACKAGE_vsftpd=y
-CONFIG_PACKAGE_openssh-sftp-server=y
-CONFIG_PACKAGE_qemu-ga=y
 CONFIG_PACKAGE_autocore-x86=y
-EOF
-
-# 其他软件包:
-cat >> .config <<EOF
 CONFIG_HAS_FPU=y
 EOF
 
-
-# 
-# ●●●●●●●●●●●●●●●●●●●●●●●●固件定制部分结束●●●●●●●●●●●●●●●●●●●●●●●● #
-# 
-
+# ============ 清理.config格式 ============
 sed -i 's/^[ \t]*//g' ./.config
-
-
-# 修复和调试
-echo "=== 原始配置行数: $(wc -l .config) ==="
-echo "=== 第60-70行内容 ==="
-sed -n '60,70p' .config
-
-# 自动修复常见语法错误
-sed -i 's/^\(CONFIG_[A-Z0-9_]*\)[[:space:]]\+\([^=]\)/\1=\2/g' .config
-sed -i 's/^[[:space:]]*#*[[:space:]]*\(CONFIG_[A-Z0-9_]*\)[[:space:]]\+is not set/# \1 is not set/g' .config
 sed -i '/^[[:space:]]*$/d' .config
 
-echo "=== 修复后的第60-70行内容 ==="
-sed -n '60,70p' .config
-echo "=== 修复完成 ==="
+echo ""
+echo "=== 配置统计 ==="
+echo "配置文件行数: $(wc -l .config | awk '{print $1}')"
+echo "启用的功能数: $(grep -c "=y" .config)"
 
 # 返回目录
 cd $HOME
+echo ""
+echo "=== 脚本执行完成 ==="

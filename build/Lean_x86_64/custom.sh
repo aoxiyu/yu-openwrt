@@ -38,7 +38,7 @@ if [ -d "$PKG_DIR" ] && [ -n "$(ls -A $PKG_DIR 2>/dev/null)" ]; then
 
     # 第一阶段：优先安装架构特定的包 (e.g., npc_0.26.26-r16_x86_64.ipk)
     # 这些通常是基础程序或内核模块，LuCI包依赖它们。
-    for pkg in $PKG_DIR/*_*.ipk; do # 模式匹配包含下划线_的包名
+    for pkg in $PKG_DIR/*x86_64.ipk; do # 模式匹配包含下划线_的包名
         if [ -f "$pkg" ]; then # 确保是文件，防止没匹配到时循环到通配符本身
             echo "优先安装基础包: $(basename "$pkg")"
             opkg install "$pkg" --force-depends

@@ -3,6 +3,14 @@ name: 编译OpenWrt固件(Lean_x86_64)
 on:
   workflow_dispatch:
     inputs:
+      Lean_x86_64:
+        description: '编译 Lean_x86_64'
+        type: boolean
+        default: false
+      Lean_x86_64_Docker:
+        description: '编译 Lean_x86_64_Docker'
+        type: boolean
+        default: false    
       CACHE_BUILD:
         description: '缓存加速'
         required: false

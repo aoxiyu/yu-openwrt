@@ -1,29 +1,5 @@
 #!/bin/bash
 
-# ============================================
-# 集中配置区域
-# ============================================
-
-# Docker配置
-ENABLE_DOCKER="y"  # y: 启用Docker, n: 禁用Docker
-DOCKER_STORAGE_DRIVER="overlay2"  # overlay2, vfs, aufs
-DOCKER_DATA_ROOT="/opt/docker"
-
-# OpenWrt网络配置
-OPENWRT_IP="172.18.18.222"
-OPENWRT_GATEWAY="172.18.18.2"
-OPENWRT_DNS="223.5.5.5 119.29.29.29"
-
-# 工作路径变量（必须放在最前面）
-WORKPATH=$(pwd)
-CUSTOM_SH="custom.sh"  # 根据实际情况调整
-
-echo "当前工作目录: $WORKPATH"
-
-# ============================================
-# 以下为原始脚本内容...
-# ============================================
-
 # 安装额外依赖软件包
 # sudo -E apt-get -y install rename
 
@@ -116,97 +92,32 @@ fi
 # 自定义定制选项
 NET="package/base-files/luci2/bin/config_generate"
 ZZZ="package/lean/default-settings/files/zzz-default-settings"
-
 # 读取内核版本
 KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')
 KERNEL_TESTING_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_TESTING_PATCHVER | sed 's/^.\{25\}//g')
-
-echo "当前内核版本: $KERNEL_PATCHVER"
-echo "测试内核版本: $KERNEL_TESTING_PATCHVER"
-
-# 自动更新到最新内核版本（保持原有逻辑）
 if [[ $KERNEL_TESTING_PATCHVER > $KERNEL_PATCHVER ]]; then
-  sed -i "s/$KERNEL_PATCHVER/$KERNEL_TESTING_PATCHVER/g" target/linux/x86/Makefile
-  KERNEL_PATCHVER=$KERNEL_TESTING_PATCHVER
-  echo "内核版本已更新为 $KERNEL_PATCHVER"
+  sed -i "s/$KERNEL_PATCHVER/$KERNEL_TESTING_PATCHVER/g" target/linux/x86/Makefile        # 修改内核版本为最新
+  echo "内核版本已更新为 $KERNEL_TESTING_PATCHVER"
 else
   echo "内核版本不需要更新"
 fi
 
-# ============================================
-# Docker内核支持配置（必须放在内核版本读取之后）
-# ============================================
-
-if [ "$ENABLE_DOCKER" = "y" ]; then
-    echo "配置Docker内核支持（内核版本: $KERNEL_PATCHVER）..."
-    
-    DOCKER_KERNEL_CONFIG="target/linux/x86/config-${KERNEL_PATCHVER}"
-    
-    if [ -f "$DOCKER_KERNEL_CONFIG" ]; then
-        echo "为Docker添加overlayfs内核支持到: $DOCKER_KERNEL_CONFIG"
-        
-        # 备份原始配置
-        cp "$DOCKER_KERNEL_CONFIG" "${DOCKER_KERNEL_CONFIG}.backup"
-        
-        # 清理现有的overlay配置
-        sed -i '/CONFIG_OVERLAY_FS/d' "$DOCKER_KERNEL_CONFIG"
-        sed -i '/CONFIG_OVERLAY_FS_REDIRECT_DIR/d' "$DOCKER_KERNEL_CONFIG"
-        sed -i '/CONFIG_OVERLAY_FS_INDEX/d' "$DOCKER_KERNEL_CONFIG"
-        sed -i '/CONFIG_OVERLAY_FS_METACOPY/d' "$DOCKER_KERNEL_CONFIG"
-        
-        # 添加Docker必需的overlayfs配置
-        echo "# Docker overlayfs支持" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_OVERLAY_FS=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_OVERLAY_FS_REDIRECT_DIR=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_OVERLAY_FS_INDEX=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_OVERLAY_FS_METACOPY=y" >> "$DOCKER_KERNEL_CONFIG"
-        
-        # 其他必需的内核配置（适用于6.x内核）
-        echo "# Docker其他必需配置" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_USER_NS=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_CGROUP_DEVICE=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_CGROUP_PIDS=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_MEMCG=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_VETH=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_BRIDGE=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_NF_NAT=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_NF_NAT_IPV4=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_NF_NAT_IPV6=y" >> "$DOCKER_KERNEL_CONFIG"
-        
-        # 6.x内核通用配置
-        echo "# 6.x内核通用配置" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_CGROUP_BPF=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_BPF_SYSCALL=y" >> "$DOCKER_KERNEL_CONFIG"
-        echo "CONFIG_CGROUP_FREEZER=y" >> "$DOCKER_KERNEL_CONFIG"
-        
-        echo "Docker内核配置已更新"
-    else
-        echo "警告：内核配置文件 $DOCKER_KERNEL_CONFIG 不存在"
-        echo "尝试寻找其他配置文件..."
-        ALT_CONFIG=$(find target/linux/x86 -name "config-*" | head -1)
-        if [ -f "$ALT_CONFIG" ]; then
-            echo "使用备选配置文件: $ALT_CONFIG"
-            DOCKER_KERNEL_CONFIG="$ALT_CONFIG"
-            # 在这里可以添加配置，或者只是记录日志
-        fi
-    fi
-fi
-
-# ============================================
-# 基础配置
-# ============================================
-
-# sed -i 's#192.168.1.1#172.18.18.222#g' $NET  # 定制默认IP
-sed -i 's#LEDE#OpenWrt-GanQuanRu#g' $NET  # 修改默认名称为OpenWrt-X86
-sed -i 's@.*CYXluq4wUazHjmCDBCqXF*@#&@g' $ZZZ  # 取消系统默认密码
-sed -i "s/LEDE /GanQuanRu build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ  # 增加自己个性名称
-echo "uci set luci.main.mediaurlbase=/luci-static/argon" >> $ZZZ  # 设置默认主题
+#
+# sed -i 's#192.168.1.1#172.18.18.222#g' $NET                                                    # 定制默认IP
+sed -i 's#LEDE#OpenWrt-GanQuanRu#g' $NET                                                     # 修改默认名称为OpenWrt-X86
+sed -i 's@.*CYXluq4wUazHjmCDBCqXF*@#&@g' $ZZZ                                             # 取消系统默认密码
+sed -i "s/LEDE /GanQuanRu build $(TZ=UTC-8 date "+%Y.%m.%d") @ LEDE /g" $ZZZ              # 增加自己个性名称
+echo "uci set luci.main.mediaurlbase=/luci-static/argon" >> $ZZZ                      # 设置默认主题(如果编译可会自动修改默认主题的，有可能会失效)
 
 # ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● #
 
-sed -i 's#localtime  = os.date()#localtime  = os.date("%Y年%m月%d日") .. " " .. translate(os.date("%A")) .. " " .. os.date("%X")#g' package/lean/autocore/files/*/index.htm  # 修改默认时间格式
-sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' package/base-files/files/etc/banner  # 自定义banner显示
+sed -i 's#localtime  = os.date()#localtime  = os.date("%Y年%m月%d日") .. " " .. translate(os.date("%A")) .. " " .. os.date("%X")#g' package/lean/autocore/files/*/index.htm               # 修改默认时间格式
+sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' package/base-files/files/etc/banner               # 自定义banner显示
+# sed -i 's@list listen_https@# list listen_https@g' package/network/services/uhttpd/files/uhttpd.config               # 停止监听443端口
+# sed -i 's#option commit_interval 24h#option commit_interval 10m#g' feeds/packages/net/nlbwmon/files/nlbwmon.config               # 修改流量统计写入为10分钟
+# sed -i 's#option database_generations 10#option database_generations 3#g' feeds/packages/net/nlbwmon/files/nlbwmon.config               # 修改流量统计数据周期
+# sed -i 's#option database_directory /var/lib/nlbwmon#option database_directory /etc/config/nlbwmon_data#g' feeds/packages/net/nlbwmon/files/nlbwmon.config               # 修改流量统计数据存放默认位置
+# sed -i 's#interval: 5#interval: 1#g' feeds/luci/applications/luci-app-wrtbwmon/htdocs/luci-static/wrtbwmon/wrtbwmon.js               # wrtbwmon默认刷新时间更改为1秒
 
 # ●●●●●●●●●●●●●●●●●●●●●●●●定制部分●●●●●●●●●●●●●●●●●●●●●●●● #
 
@@ -253,159 +164,92 @@ EOF
 # =======================================================
 
 # 检查 OpenClash 是否启用编译
-if grep -qE '^(CONFIG_PACKAGE_luci-app-openclash=n|# CONFIG_PACKAGE_luci-app-openclash=)' "${WORKPATH}/$CUSTOM_SH" 2>/dev/null; then
-    # OpenClash 未启用，不执行任何操作
-    echo "OpenClash 未启用编译"
-    echo 'rm -rf /etc/openclash' >> $ZZZ
+if grep -qE '^(CONFIG_PACKAGE_luci-app-openclash=n|# CONFIG_PACKAGE_luci-app-openclash=)' "${WORKPATH}/$CUSTOM_SH"; then
+  # OpenClash 未启用，不执行任何操作
+  echo "OpenClash 未启用编译"
+  echo 'rm -rf /etc/openclash' >> $ZZZ
 else
-    # OpenClash 已启用，执行配置
-    if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" .config 2>/dev/null || \
-       grep -q "CONFIG_PACKAGE_luci-app-openclash=y" "${WORKPATH}/$CUSTOM_SH" 2>/dev/null; then
-        # 判断系统架构
-        arch=$(uname -m)  # 获取系统架构
-        case "$arch" in
-            x86_64)
-                arch="amd64"
-                ;;
-            aarch64|arm64)
-                arch="arm64"
-                ;;
-            *)
-                arch="amd64"  # 默认
-                ;;
-        esac
-        # OpenClash Meta 开始配置内核
-        echo "正在执行：为OpenClash下载内核"
-        mkdir -p $HOME/clash-core
-        mkdir -p $HOME/files/etc/openclash/core
-        cd $HOME/clash-core
-        # 下载Meta内核
-        wget -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
-        if [[ $? -ne 0 ]]; then
-            wget -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
-        else
-            echo "OpenClash Meta内核压缩包下载成功，开始解压文件"
-        fi
-        tar -zxvf clash-linux-$arch.tar.gz
-        if [[ -f "$HOME/clash-core/clash" ]]; then
-            mv -f $HOME/clash-core/clash $HOME/files/etc/openclash/core/clash_meta
-            chmod +x $HOME/files/etc/openclash/core/clash_meta
-            echo "OpenClash Meta内核配置成功"
-        else
-            echo "OpenClash Meta内核配置失败"
-        fi
-        rm -rf $HOME/clash-core/clash-linux-$arch.tar.gz
-        rm -rf $HOME/clash-core
+  # OpenClash 已启用，执行配置
+  if grep -q "CONFIG_PACKAGE_luci-app-openclash=y" "${WORKPATH}/$CUSTOM_SH"; then
+    # 判断系统架构
+    arch=$(uname -m)  # 获取系统架构
+    case "$arch" in
+      x86_64)
+        arch="amd64"
+        ;;
+      aarch64|arm64)
+        arch="arm64"
+        ;;
+    esac
+    # OpenClash Meta 开始配置内核
+    echo "正在执行：为OpenClash下载内核"
+    mkdir -p $HOME/clash-core
+    mkdir -p $HOME/files/etc/openclash/core
+    cd $HOME/clash-core
+    # 下载Meta内核
+    wget -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
+    if [[ $? -ne 0 ]];then
+      wget -q https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-$arch.tar.gz
+    else
+      echo "OpenClash Meta内核压缩包下载成功，开始解压文件"
     fi
-fi
-
-# =======================================================
-# Docker配置（如果启用）
-# =======================================================
-
-if [ "$ENABLE_DOCKER" = "y" ]; then
-    echo "配置Docker存储驱动..."
-    cat >> $ZZZ << 'EOF'
-
-# Docker配置
-uci set docker.globals='globals'
-uci set docker.globals.data_root='/opt/docker'
-uci set docker.globals.log_level='warn'
-uci set docker.globals.iptables='1'
-uci set docker.globals.ipv6='0'
-uci set docker.globals.debug='0'
-uci set docker.globals.storage_driver='overlay2'
-uci set docker.globals.userland_proxy='0'
-
-# 创建Docker目录
-mkdir -p /opt/docker
-mkdir -p /etc/docker
-
-# Docker守护进程配置
-cat > /etc/docker/daemon.json << DOCKEREOF
-{
-  "data-root": "/opt/docker",
-  "log-level": "warn",
-  "iptables": true,
-  "ipv6": false,
-  "debug": false,
-  "storage-driver": "overlay2",
-  "storage-opts": [
-    "overlay2.override_kernel_check=true",
-    "overlay2.skip_mount_home=true"
-  ],
-  "exec-opts": [
-    "native.cgroupdriver=cgroupfs"
-  ],
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
-  },
-  "default-ulimits": {
-    "nofile": {
-      "Name": "nofile",
-      "Hard": 65536,
-      "Soft": 65536
-    }
-  }
-}
-DOCKEREOF
-
-# 加载必要的内核模块
-insmod overlay 2>/dev/null || true
-insmod br_netfilter 2>/dev/null || true
-insmod veth 2>/dev/null || true
-
-# 启用IP转发和桥接
-echo 1 > /proc/sys/net/ipv4/ip_forward
-echo 1 > /proc/sys/net/bridge/bridge-nf-call-iptables
-
-# 设置开机加载模块
-mkdir -p /etc/modules.d
-echo overlay > /etc/modules.d/50-docker
-echo br_netfilter >> /etc/modules.d/50-docker
-echo veth >> /etc/modules.d/50-docker
-
-# 测试overlay文件系统
-mkdir -p /tmp/test-overlay/{lower,upper,work,merged}
-if mount -t overlay overlay -o lowerdir=/tmp/test-overlay/lower,upperdir=/tmp/test-overlay/upper,workdir=/tmp/test-overlay/work /tmp/test-overlay/merged 2>/dev/null; then
-    echo "overlay文件系统测试成功"
-    umount /tmp/test-overlay/merged
-    rm -rf /tmp/test-overlay
-else
-    echo "警告: overlay文件系统测试失败，将尝试使用vfs驱动"
-    # 如果overlay失败，回退到vfs
-    sed -i 's/"storage-driver": "overlay2"/"storage-driver": "vfs"/g' /etc/docker/daemon.json
-    sed -i 's/uci set docker.globals.storage_driver='"'"'overlay2'"'"'/uci set docker.globals.storage_driver='"'"'vfs'"'"'/g' /etc/config/docker 2>/dev/null || true
-fi
-
-# 启动Docker服务
-/etc/init.d/docker enable
-/etc/init.d/docker start 2>/dev/null || true
-
-EOF
+    tar -zxvf clash-linux-$arch.tar.gz
+    if [[ -f "$HOME/clash-core/clash" ]]; then
+      mv -f $HOME/clash-core/clash $HOME/files/etc/openclash/core/clash_meta
+      chmod +x $HOME/files/etc/openclash/core/clash_meta
+      echo "OpenClash Meta内核配置成功"
+    else
+      echo "OpenClash Meta内核配置失败"
+    fi
+    rm -rf $HOME/clash-core/clash-linux-$arch.tar.gz
+    rm -rf $HOME/clash-core
+  fi
 fi
 
 # =======================================================
 
 # 修改退出命令到最后
-sed -i '/exit 0/d' $ZZZ && echo "exit 0" >> $ZZZ
+cd $HOME && sed -i '/exit 0/d' $ZZZ && echo "exit 0" >> $ZZZ
 
 # ●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●●● #
 
-# 创建自定义配置文件（修复：确保在正确的目录下）
-echo "当前目录: $(pwd)"
-echo "创建工作目录: $WORKPATH"
 
-# 确保在正确的工作目录
+# 创建自定义配置文件
+
 cd $WORKPATH
 touch ./.config
 
-echo "已创建 .config 文件: $(pwd)/.config"
-
 #
 # ●●●●●●●●●●●●●●●●●●●●●●●●固件定制部分●●●●●●●●●●●●●●●●●●●●●●●●
+# 
+
+# 
+# 如果不对本区块做出任何编辑, 则生成默认配置固件. 
+# 
+
+# 以下为定制化固件选项和说明:
+#
+
+#
+# 有些插件/选项是默认开启的, 如果想要关闭, 请参照以下示例进行编写:
+# 
+#          ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+#        ■|  # 取消编译VMware镜像:                    |■
+#        ■|  cat >> .config <<EOF                   |■
+#        ■|  # CONFIG_VMDK_IMAGES is not set        |■
+#        ■|  EOF                                    |■
+#          ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+#
+
+# 
+# 以下是一些提前准备好的一些插件选项.
+# 直接取消注释相应代码块即可应用. 不要取消注释代码块上的汉字说明.
+# 如果不需要代码块里的某一项配置, 只需要删除相应行.
+#
+# 如果需要其他插件, 请按照示例自行添加.
+# 注意, 只需添加依赖链顶端的包. 如果你需要插件 A, 同时 A 依赖 B, 即只需要添加 A.
+# 
+# 无论你想要对固件进行怎样的定制, 都需要且只需要修改 EOF 回环内的内容.
 # 
 
 # 编译x64固件:
@@ -445,14 +289,48 @@ CONFIG_VMDK_IMAGES=n
 CONFIG_TARGET_IMAGES_PAD=y
 EOF
 
+# 多文件系统支持:
+# cat >> .config <<EOF
+# CONFIG_PACKAGE_kmod-fs-nfs=y
+# CONFIG_PACKAGE_kmod-fs-nfs-common=y
+# CONFIG_PACKAGE_kmod-fs-nfs-v3=y
+# CONFIG_PACKAGE_kmod-fs-nfs-v4=y
+# CONFIG_PACKAGE_kmod-fs-ntfs=y
+# CONFIG_PACKAGE_kmod-fs-squashfs=y
+# EOF
+
+# USB3.0支持:
+# cat >> .config <<EOF
+# CONFIG_PACKAGE_kmod-usb-ohci=y
+# CONFIG_PACKAGE_kmod-usb-ohci-pci=y
+# CONFIG_PACKAGE_kmod-usb2=y
+# CONFIG_PACKAGE_kmod-usb2-pci=y
+# CONFIG_PACKAGE_kmod-usb3=y
+# EOF
+
+# 多线多拨:
+# cat >> .config <<EOF
+# CONFIG_PACKAGE_luci-app-syncdial=y #多拨虚拟WAN
+# CONFIG_PACKAGE_luci-app-mwan3=y #MWAN负载均衡
+# CONFIG_PACKAGE_luci-app-mwan3helper=n #MWAN3分流助手
+# EOF
+
 # 第三方插件选择:
 cat >> .config <<EOF
-CONFIG_PACKAGE_luci-app-oaf=n
-CONFIG_PACKAGE_luci-app-openclash=y
-CONFIG_PACKAGE_luci-app-nikki=n
-CONFIG_PACKAGE_luci-app-eqos=n
+CONFIG_PACKAGE_luci-app-oaf=n #应用过滤
+CONFIG_PACKAGE_luci-app-openclash=y #OpenClash客户端
+CONFIG_PACKAGE_luci-app-nikki=n #nikki 客户端
+# CONFIG_PACKAGE_luci-app-serverchan=y #微信推送
+CONFIG_PACKAGE_luci-app-eqos=n #IP限速
 CONFIG_PACKAGE_luci-app-easytier=n
-CONFIG_PACKAGE_luci-app-poweroff=n
+# CONFIG_PACKAGE_luci-app-control-weburl=y #网址过滤
+# CONFIG_PACKAGE_luci-app-smartdns=n #smartdns服务器
+# CONFIG_PACKAGE_luci-app-adguardhome=y #ADguardhome
+CONFIG_PACKAGE_luci-app-poweroff=n #关机（增加关机功能）
+# CONFIG_PACKAGE_luci-app-argon-config=y #argon主题设置
+# CONFIG_PACKAGE_luci-app-autotimeset=y #定时重启系统，网络
+# CONFIG_PACKAGE_luci-app-ddnsto=y #小宝开发的DDNS.to内网穿透
+# CONFIG_PACKAGE_ddnsto=y #DDNS.to内网穿透软件包
 EOF
 
 # ShadowsocksR插件:
@@ -464,7 +342,10 @@ EOF
 # Passwall插件:
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-passwall=y
+# CONFIG_PACKAGE_luci-app-passwall2=y
+# CONFIG_PACKAGE_naiveproxy=y
 CONFIG_PACKAGE_chinadns-ng=y
+# CONFIG_PACKAGE_brook=y
 CONFIG_PACKAGE_trojan-go=y
 CONFIG_PACKAGE_xray-plugin=y
 CONFIG_PACKAGE_shadowsocks-rust-sslocal=n
@@ -477,47 +358,55 @@ EOF
 
 # 常用LuCI插件:
 cat >> .config <<EOF
-CONFIG_PACKAGE_luci-app-ddns=n
+# CONFIG_PACKAGE_luci-app-adbyby-plus=n #adbyby去广告
+# CONFIG_PACKAGE_luci-app-webadmin=n #Web管理页面设置
+CONFIG_PACKAGE_luci-app-ddns=n #DDNS服务
 CONFIG_PACKAGE_luci-app-vlmcsd=n
-CONFIG_DEFAULT_luci-app-vlmcsd=n
-CONFIG_PACKAGE_luci-app-filetransfer=y
-CONFIG_PACKAGE_luci-app-autoreboot=n
-CONFIG_PACKAGE_luci-app-upnp=n
-CONFIG_PACKAGE_luci-app-arpbind=n
-CONFIG_PACKAGE_luci-app-accesscontrol=n
-CONFIG_PACKAGE_luci-app-wol=n
-CONFIG_PACKAGE_luci-app-nps=n
-CONFIG_PACKAGE_luci-app-frpc=n
-CONFIG_PACKAGE_luci-app-nlbwmon=n
-CONFIG_PACKAGE_luci-app-wrtbwmon=y
-CONFIG_PACKAGE_luci-app-haproxy-tcp=n
-CONFIG_PACKAGE_luci-app-diskman=y
-CONFIG_PACKAGE_luci-app-transmission=n
-CONFIG_PACKAGE_luci-app-qbittorrent=n
-CONFIG_PACKAGE_luci-app-amule=n
-CONFIG_PACKAGE_luci-app-xlnetacc=n
-CONFIG_PACKAGE_luci-app-zerotier=n
-CONFIG_PACKAGE_luci-app-hd-idle=n
-CONFIG_PACKAGE_luci-app-unblockmusic=n
-CONFIG_PACKAGE_luci-app-airplay2=n
-CONFIG_PACKAGE_luci-app-music-remote-center=n
-CONFIG_PACKAGE_luci-app-usb-printer=n
-CONFIG_PACKAGE_luci-app-sqm=n
-CONFIG_PACKAGE_luci-app-jd-dailybonus=n
-CONFIG_PACKAGE_luci-app-uugamebooster=n
-CONFIG_PACKAGE_luci-app-dockerman=y
-CONFIG_PACKAGE_luci-app-ttyd=n
-CONFIG_PACKAGE_luci-app-wireguard=n
-CONFIG_PACKAGE_luci-app-v2ray-server=n
-CONFIG_PACKAGE_luci-app-pptp-server=n
-CONFIG_PACKAGE_luci-app-ipsec-vpnd=n
-CONFIG_PACKAGE_luci-app-openvpn-server=n
-CONFIG_PACKAGE_luci-app-softethervpn=n
-CONFIG_PACKAGE_luci-app-minidlna=n
-CONFIG_PACKAGE_luci-app-vsftpd=n
-CONFIG_PACKAGE_luci-app-samba=n
-CONFIG_PACKAGE_autosamba=n
-CONFIG_PACKAGE_samba36-server=n
+CONFIG_DEFAULT_luci-app-vlmcsd=n #KMS激活服务器
+CONFIG_PACKAGE_luci-app-filetransfer=y #系统-文件传输
+CONFIG_PACKAGE_luci-app-autoreboot=n #定时重启
+CONFIG_PACKAGE_luci-app-upnp=n #通用即插即用UPnP(端口自动转发)
+CONFIG_PACKAGE_luci-app-arpbind=n #IP/MAC绑定
+CONFIG_PACKAGE_luci-app-accesscontrol=n #上网时间控制
+CONFIG_PACKAGE_luci-app-wol=n #网络唤醒
+CONFIG_PACKAGE_luci-app-nps=n #nps内网穿透
+CONFIG_PACKAGE_luci-app-frpc=n #Frp内网穿透
+CONFIG_PACKAGE_luci-app-nlbwmon=n #宽带流量监控
+CONFIG_PACKAGE_luci-app-wrtbwmon=y #实时流量监测
+CONFIG_PACKAGE_luci-app-haproxy-tcp=n #Haproxy负载均衡
+CONFIG_PACKAGE_luci-app-diskman=n #磁盘管理磁盘信息
+CONFIG_PACKAGE_luci-app-transmission=n #Transmission离线下载
+CONFIG_PACKAGE_luci-app-qbittorrent=n #qBittorrent离线下载
+CONFIG_PACKAGE_luci-app-amule=n #电驴离线下载
+CONFIG_PACKAGE_luci-app-xlnetacc=n #迅雷快鸟
+CONFIG_PACKAGE_luci-app-zerotier=n #zerotier内网穿透
+CONFIG_PACKAGE_luci-app-hd-idle=n #磁盘休眠
+CONFIG_PACKAGE_luci-app-unblockmusic=n #解锁网易云灰色歌曲
+CONFIG_PACKAGE_luci-app-airplay2=n #Apple AirPlay2音频接收服务器
+CONFIG_PACKAGE_luci-app-music-remote-center=n #PCHiFi数字转盘遥控
+CONFIG_PACKAGE_luci-app-usb-printer=n #USB打印机
+CONFIG_PACKAGE_luci-app-sqm=n #SQM智能队列管理
+CONFIG_PACKAGE_luci-app-jd-dailybonus=n #京东签到服务
+CONFIG_PACKAGE_luci-app-uugamebooster=n #UU游戏加速器
+CONFIG_PACKAGE_luci-app-dockerman=y #Docker管理
+CONFIG_PACKAGE_luci-app-ttyd=n #ttyd
+CONFIG_PACKAGE_luci-app-wireguard=n #wireguard端
+#
+# VPN相关插件(禁用):
+#
+CONFIG_PACKAGE_luci-app-v2ray-server=n #V2ray服务器
+CONFIG_PACKAGE_luci-app-pptp-server=n #PPTP VPN 服务器
+CONFIG_PACKAGE_luci-app-ipsec-vpnd=n #ipsec VPN服务
+CONFIG_PACKAGE_luci-app-openvpn-server=n #openvpn服务
+CONFIG_PACKAGE_luci-app-softethervpn=n #SoftEtherVPN服务器
+#
+# 文件共享相关(禁用):
+#
+CONFIG_PACKAGE_luci-app-minidlna=n #miniDLNA服务
+CONFIG_PACKAGE_luci-app-vsftpd=n #FTP 服务器
+CONFIG_PACKAGE_luci-app-samba=n #网络共享
+CONFIG_PACKAGE_autosamba=n #网络共享
+CONFIG_PACKAGE_samba36-server=n #网络共享
 EOF
 
 # LuCI主题:
@@ -532,6 +421,9 @@ CONFIG_PACKAGE_firewall4=y
 CONFIG_PACKAGE_curl=y
 CONFIG_PACKAGE_htop=y
 CONFIG_PACKAGE_nano=y
+# CONFIG_PACKAGE_screen=y
+# CONFIG_PACKAGE_tree=y
+# CONFIG_PACKAGE_vim-fuller=y
 CONFIG_PACKAGE_wget=y
 CONFIG_PACKAGE_bash=y
 CONFIG_PACKAGE_kmod-tun=y
@@ -546,91 +438,18 @@ CONFIG_PACKAGE_qemu-ga=y
 CONFIG_PACKAGE_autocore-x86=y
 EOF
 
-# Docker内核模块和依赖（如果启用Docker）
-if [ "$ENABLE_DOCKER" = "y" ]; then
-    cat >> .config <<EOF
-# Docker核心
-CONFIG_PACKAGE_dockerd=y
-CONFIG_PACKAGE_docker=y
-CONFIG_PACKAGE_docker-compose=y
-
-# Docker必需内核模块
-CONFIG_PACKAGE_kmod-fs-overlay=y
-CONFIG_PACKAGE_kmod-fuse=y
-CONFIG_PACKAGE_kmod-dm=y
-CONFIG_PACKAGE_kmod-br-netfilter=y
-CONFIG_PACKAGE_kmod-ikconfig=y
-CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y
-CONFIG_PACKAGE_kmod-nf-ipvs=y
-CONFIG_PACKAGE_kmod-veth=y
-CONFIG_PACKAGE_kmod-ipt-extra=y
-CONFIG_PACKAGE_kmod-ipt-ipset=y
-CONFIG_PACKAGE_kmod-ipt-nat=y
-CONFIG_PACKAGE_kmod-ipt-nat-extra=y
-CONFIG_PACKAGE_kmod-ipt-nat6=y
-
-# Cgroups支持
-CONFIG_PACKAGE_kmod-crypto-user=y
-CONFIG_PACKAGE_kmod-vxlan=y
-CONFIG_PACKAGE_kmod-ip6-tunnel=y
-
-# 网络支持
-CONFIG_PACKAGE_kmod-nft-tproxy=y
-CONFIG_PACKAGE_kmod-nft-socket=y
-
-# Docker存储驱动支持
-CONFIG_PACKAGE_kmod-loop=y
-CONFIG_PACKAGE_kmod-dax=y
-CONFIG_PACKAGE_kmod-dm-raid=y
-CONFIG_PACKAGE_kmod-dm-verity=y
-
-# 可选：aufs作为备选存储驱动
-CONFIG_PACKAGE_kmod-fs-aufs=y
-
-# 文件系统支持
-CONFIG_PACKAGE_kmod-fs-btrfs=y
-CONFIG_PACKAGE_kmod-fs-ext4=y
-CONFIG_PACKAGE_kmod-fs-vfat=y
-
-# 容器工具
-CONFIG_PACKAGE_containerd=y
-CONFIG_PACKAGE_runc=y
-CONFIG_PACKAGE_tini=y
-
-# Docker CLI工具
-CONFIG_PACKAGE_libnetwork=y
-CONFIG_PACKAGE_libdevmapper=y
-
-# 系统工具
-CONFIG_PACKAGE_mount-utils=y
-CONFIG_PACKAGE_losetup=y
-CONFIG_PACKAGE_e2fsprogs=y
-CONFIG_PACKAGE_f2fs-tools=y
-CONFIG_PACKAGE_f2fsck=y
-CONFIG_PACKAGE_resize2fs=y
-
-# 网络工具
-CONFIG_PACKAGE_iptables-mod-extra=y
-CONFIG_PACKAGE_iptables-mod-ipopt=y
-CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
-CONFIG_PACKAGE_ip6tables-mod-nat=y
-
-# 进程和用户空间工具
-CONFIG_PACKAGE_shadow-useradd=y
-CONFIG_PACKAGE_shadow-groupadd=y
-EOF
-fi
-
 # 其他软件包:
 cat >> .config <<EOF
 CONFIG_HAS_FPU=y
 EOF
+
 
 # 
 # ●●●●●●●●●●●●●●●●●●●●●●●●固件定制部分结束●●●●●●●●●●●●●●●●●●●●●●●● #
 # 
 
 sed -i 's/^[ \t]*//g' ./.config
+
 
 # 修复和调试
 echo "=== 原始配置行数: $(wc -l .config) ==="
@@ -646,37 +465,5 @@ echo "=== 修复后的第60-70行内容 ==="
 sed -n '60,70p' .config
 echo "=== 修复完成 ==="
 
-# Docker编译验证
-if [ "$ENABLE_DOCKER" = "y" ]; then
-    echo "=== Docker编译配置验证 ==="
-    echo "检查Docker相关配置..."
-    
-    # 检查.config中的Docker配置
-    DOCKER_CONFIGS=$(grep -E "CONFIG_PACKAGE_(docker|dockerd|kmod-fs-overlay|containerd)" .config 2>/dev/null || true)
-    
-    if [ -n "$DOCKER_CONFIGS" ]; then
-        echo "Docker配置已包含："
-        echo "$DOCKER_CONFIGS" | head -20
-    else
-        echo "警告：未找到Docker相关配置，将自动添加..."
-        # 自动添加Docker配置
-        cat >> .config <<DOCKER_AUTO
-CONFIG_PACKAGE_dockerd=y
-CONFIG_PACKAGE_docker=y
-CONFIG_PACKAGE_kmod-fs-overlay=y
-CONFIG_PACKAGE_containerd=y
-DOCKER_AUTO
-    fi
-    
-    # 检查内核配置
-    if [ -f "target/linux/x86/config-$KERNEL_PATCHVER" ]; then
-        echo "检查内核overlayfs支持..."
-        grep -q "CONFIG_OVERLAY_FS" target/linux/x86/config-$KERNEL_PATCHVER && \
-            echo "✓ overlayfs内核支持已配置" || \
-            echo "⚠ overlayfs内核支持未找到"
-    fi
-    echo "=== Docker验证完成 ==="
-fi
-
-echo "脚本执行完成，返回原目录"
-cd $WORKPATH
+# 返回目录
+cd $HOME

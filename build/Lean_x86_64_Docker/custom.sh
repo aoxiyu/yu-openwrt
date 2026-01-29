@@ -438,19 +438,6 @@ CONFIG_PACKAGE_qemu-ga=y
 CONFIG_PACKAGE_autocore-x86=y
 EOF
 
-# Docker & crun 环境（编译进固件）
-cat >> .config <<EOF
-CONFIG_PACKAGE_docker=y
-CONFIG_PACKAGE_dockerd=y
-CONFIG_PACKAGE_crun=y
-CONFIG_PACKAGE_cgroupfs-mount=y
-CONFIG_PACKAGE_kmod-veth=y
-CONFIG_PACKAGE_kmod-bridge=y
-CONFIG_PACKAGE_kmod-br-netfilter=y
-CONFIG_PACKAGE_kmod-ipt-nat=y
-CONFIG_PACKAGE_kmod-nf-nat=y
-EOF
-
 
 # 其他软件包:
 cat >> .config <<EOF

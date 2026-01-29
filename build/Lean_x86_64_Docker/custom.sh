@@ -92,6 +92,30 @@ fi
 # 自定义定制选项
 NET="package/base-files/luci2/bin/config_generate"
 ZZZ="package/lean/default-settings/files/zzz-default-settings"
+
+# Docker内核支持配置（确保overlayfs正常工作）
+DOCKER_KERNEL_CONFIG="target/linux/x86/config-${KERNEL_PATCHVER:-5.4}"
+if [ -f "$DOCKER_KERNEL_CONFIG" ]; then
+    echo "为Docker添加overlayfs内核支持..."
+    # 确保overlayfs相关配置已启用
+    sed -i 's/# CONFIG_OVERLAY_FS is not set/CONFIG_OVERLAY_FS=y/g' "$DOCKER_KERNEL_CONFIG"
+    sed -i 's/CONFIG_OVERLAY_FS=m/CONFIG_OVERLAY_FS=y/g' "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_OVERLAY_FS=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_OVERLAY_FS_REDIRECT_DIR=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_OVERLAY_FS_INDEX=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_OVERLAY_FS_METACOPY=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_USER_NS=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_CGROUP_DEVICE=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_CGROUP_PIDS=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_MEMCG=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_VETH=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_BRIDGE=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> "$DOCKER_KERNEL_CONFIG"
+    echo "Docker内核配置已更新"
+else
+    echo "警告：内核配置文件 $DOCKER_KERNEL_CONFIG 不存在"
+fi
+
 # 读取内核版本
 KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')
 KERNEL_TESTING_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_TESTING_PATCHVER | sed 's/^.\{25\}//g')
@@ -206,6 +230,88 @@ else
   fi
 fi
 
+
+# Docker配置
+echo "配置Docker存储驱动..."
+cat >> $ZZZ << 'EOF'
+
+# Docker配置
+uci set docker.globals='globals'
+uci set docker.globals.data_root='/opt/docker'
+uci set docker.globals.log_level='warn'
+uci set docker.globals.iptables='1'
+uci set docker.globals.ipv6='0'
+uci set docker.globals.debug='0'
+uci set docker.globals.storage_driver='overlay2'
+uci set docker.globals.userland_proxy='0'
+
+# 创建Docker目录
+mkdir -p /opt/docker
+mkdir -p /etc/docker
+
+# Docker守护进程配置
+cat > /etc/docker/daemon.json << DOCKEREOF
+{
+  "data-root": "/opt/docker",
+  "log-level": "warn",
+  "iptables": true,
+  "ipv6": false,
+  "debug": false,
+  "storage-driver": "overlay2",
+  "storage-opts": [
+    "overlay2.override_kernel_check=true",
+    "overlay2.skip_mount_home=true"
+  ],
+  "exec-opts": [
+    "native.cgroupdriver=cgroupfs"
+  ],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+  "default-ulimits": {
+    "nofile": {
+      "Name": "nofile",
+      "Hard": 65536,
+      "Soft": 65536
+    }
+  }
+}
+DOCKEREOF
+
+# 加载必要的内核模块
+insmod overlay 2>/dev/null || true
+insmod br_netfilter 2>/dev/null || true
+insmod veth 2>/dev/null || true
+
+# 启用IP转发和桥接
+echo 1 > /proc/sys/net/ipv4/ip_forward
+echo 1 > /proc/sys/net/bridge/bridge-nf-call-iptables
+
+# 设置开机加载模块
+echo overlay >> /etc/modules.d/50-docker
+echo br_netfilter >> /etc/modules.d/50-docker
+echo veth >> /etc/modules.d/50-docker
+
+# 测试overlay文件系统
+mkdir -p /tmp/test-overlay/{lower,upper,work,merged}
+mount -t overlay overlay -o lowerdir=/tmp/test-overlay/lower,upperdir=/tmp/test-overlay/upper,workdir=/tmp/test-overlay/work /tmp/test-overlay/merged 2>/dev/null && {
+    echo "overlay文件系统测试成功"
+    umount /tmp/test-overlay/merged
+    rm -rf /tmp/test-overlay
+} || {
+    echo "警告: overlay文件系统测试失败，将尝试使用vfs驱动"
+    # 如果overlay失败，回退到vfs
+    sed -i 's/"storage-driver": "overlay2"/"storage-driver": "vfs"/g' /etc/docker/daemon.json
+    sed -i 's/uci set docker.globals.storage_driver='"'"'overlay2'"'"'/uci set docker.globals.storage_driver='"'"'vfs'"'"'/g' /etc/config/docker
+}
+
+# 启动Docker服务
+/etc/init.d/docker enable
+/etc/init.d/docker start 2>/dev/null || true
+
+EOF
 # =======================================================
 
 # 修改退出命令到最后
@@ -438,6 +544,79 @@ CONFIG_PACKAGE_qemu-ga=y
 CONFIG_PACKAGE_autocore-x86=y
 EOF
 
+# Docker内核模块和依赖（确保overlayfs正常工作）
+cat >> .config <<EOF
+# Docker核心
+CONFIG_PACKAGE_dockerd=y
+CONFIG_PACKAGE_docker=y
+CONFIG_PACKAGE_docker-compose=y
+
+# Docker必需内核模块
+CONFIG_PACKAGE_kmod-fs-overlay=y
+CONFIG_PACKAGE_kmod-fuse=y
+CONFIG_PACKAGE_kmod-dm=y
+CONFIG_PACKAGE_kmod-br-netfilter=y
+CONFIG_PACKAGE_kmod-ikconfig=y
+CONFIG_PACKAGE_kmod-nf-conntrack-netlink=y
+CONFIG_PACKAGE_kmod-nf-ipvs=y
+CONFIG_PACKAGE_kmod-veth=y
+CONFIG_PACKAGE_kmod-ipt-extra=y
+CONFIG_PACKAGE_kmod-ipt-ipset=y
+CONFIG_PACKAGE_kmod-ipt-nat=y
+CONFIG_PACKAGE_kmod-ipt-nat-extra=y
+CONFIG_PACKAGE_kmod-ipt-nat6=y
+
+# Cgroups支持
+CONFIG_PACKAGE_kmod-crypto-user=y
+CONFIG_PACKAGE_kmod-vxlan=y
+CONFIG_PACKAGE_kmod-ip6-tunnel=y
+
+# 网络支持
+CONFIG_PACKAGE_kmod-nft-tproxy=y
+CONFIG_PACKAGE_kmod-nft-socket=y
+
+# Docker存储驱动支持
+CONFIG_PACKAGE_kmod-loop=y
+CONFIG_PACKAGE_kmod-dax=y
+CONFIG_PACKAGE_kmod-dm-raid=y
+CONFIG_PACKAGE_kmod-dm-verity=y
+CONFIG_PACKAGE_kmod-ksmbd=y
+
+# 可选：aufs作为备选存储驱动
+CONFIG_PACKAGE_kmod-fs-aufs=y
+
+# 文件系统支持
+CONFIG_PACKAGE_kmod-fs-btrfs=y
+CONFIG_PACKAGE_kmod-fs-ext4=y
+CONFIG_PACKAGE_kmod-fs-vfat=y
+
+# 容器工具
+CONFIG_PACKAGE_containerd=y
+CONFIG_PACKAGE_runc=y
+CONFIG_PACKAGE_tini=y
+
+# Docker CLI工具
+CONFIG_PACKAGE_libnetwork=y
+CONFIG_PACKAGE_libdevmapper=y
+
+# 系统工具
+CONFIG_PACKAGE_mount-utils=y
+CONFIG_PACKAGE_losetup=y
+CONFIG_PACKAGE_e2fsprogs=y
+CONFIG_PACKAGE_f2fs-tools=y
+CONFIG_PACKAGE_f2fsck=y
+CONFIG_PACKAGE_resize2fs=y
+
+# 网络工具
+CONFIG_PACKAGE_iptables-mod-extra=y
+CONFIG_PACKAGE_iptables-mod-ipopt=y
+CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
+CONFIG_PACKAGE_ip6tables-mod-nat=y
+
+# 进程和用户空间工具
+CONFIG_PACKAGE_shadow-useradd=y
+CONFIG_PACKAGE_shadow-groupadd=y
+EOF
 
 # 其他软件包:
 cat >> .config <<EOF
@@ -466,5 +645,37 @@ echo "=== 修复后的第60-70行内容 ==="
 sed -n '60,70p' .config
 echo "=== 修复完成 ==="
 
+
+# Docker编译验证
+echo "=== Docker编译配置验证 ==="
+if [ "$ENABLE_DOCKER" = "y" ]; then
+    echo "检查Docker相关配置..."
+    
+    # 检查.config中的Docker配置
+    DOCKER_CONFIGS=$(grep -E "CONFIG_PACKAGE_(docker|dockerd|kmod-fs-overlay|containerd)" .config 2>/dev/null || true)
+    
+    if [ -n "$DOCKER_CONFIGS" ]; then
+        echo "Docker配置已包含："
+        echo "$DOCKER_CONFIGS" | head -20
+    else
+        echo "警告：未找到Docker相关配置，将自动添加..."
+        # 自动添加Docker配置
+        cat >> .config <<DOCKER_AUTO
+CONFIG_PACKAGE_dockerd=y
+CONFIG_PACKAGE_docker=y
+CONFIG_PACKAGE_kmod-fs-overlay=y
+CONFIG_PACKAGE_containerd=y
+DOCKER_AUTO
+    fi
+    
+    # 检查内核配置
+    if [ -f "target/linux/x86/config-$DOCKER_KERNEL_VERSION" ]; then
+        echo "检查内核overlayfs支持..."
+        grep -q "CONFIG_OVERLAY_FS" target/linux/x86/config-$DOCKER_KERNEL_VERSION && \
+            echo "✓ overlayfs内核支持已配置" || \
+            echo "⚠ overlayfs内核支持未找到"
+    fi
+fi
+echo "=== 验证完成 ==="
 # 返回目录
 cd $HOME

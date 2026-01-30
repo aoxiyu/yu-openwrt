@@ -96,7 +96,7 @@ ZZZ="package/lean/default-settings/files/zzz-default-settings"
 KERNEL_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')
 KERNEL_TESTING_PATCHVER=$(cat target/linux/x86/Makefile|grep KERNEL_TESTING_PATCHVER | sed 's/^.\{25\}//g')
 if [[ $KERNEL_TESTING_PATCHVER > $KERNEL_PATCHVER ]]; then
-#  sed -i "s/$KERNEL_PATCHVER/$KERNEL_TESTING_PATCHVER/g" target/linux/x86/Makefile        # 修改内核版本为最新
+  sed -i "s/$KERNEL_PATCHVER/$KERNEL_TESTING_PATCHVER/g" target/linux/x86/Makefile        # 修改内核版本为最新
   echo "内核版本已更新为 $KERNEL_TESTING_PATCHVER"
 else
   echo "内核版本不需要更新"
@@ -269,13 +269,7 @@ EOF
 cat >> .config <<EOF
 CONFIG_TARGET_ROOTFS_SQUASHFS=y
 CONFIG_TARGET_ROOTFS_EXT4FS=y
-CONFIG_TARGET_EXT4_RESERVED_PCT=0
 CONFIG_TARGET_EXT4_ROOTFS_PARTSIZE=400
-EOF
-
-# 优化ext4（可选）
-CONFIG_TARGET_EXT4_BLOCKSIZE_4K=y
-CONFIG_TARGET_EXT4_JOURNAL=y
 EOF
 
 # 固件压缩:
@@ -310,7 +304,7 @@ EOF
 # CONFIG_PACKAGE_kmod-fs-nfs-v4=y
 # CONFIG_PACKAGE_kmod-fs-ntfs=y
 # CONFIG_PACKAGE_kmod-fs-squashfs=y
-# EOF
+EOF
 
 # USB3.0支持:
 # cat >> .config <<EOF
@@ -475,7 +469,7 @@ sed -i 's/^[[:space:]]*#*[[:space:]]*\(CONFIG_[A-Z0-9_]*\)[[:space:]]\+is not se
 sed -i '/^[[:space:]]*$/d' .config
 
 echo "=== 修复后的第60-70行内容 ==="
-sed -n '60,70p' .config
+sed -n '30,70p' .config
 echo "=== 修复完成 ==="
 
 # 返回目录

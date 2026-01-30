@@ -367,7 +367,18 @@ jobs:
         cp -rf openwrt/.config ./artifact/buildinfo/${{matrix.target}}.config || true
         rm -rf $(find openwrt/bin/targets/ -type d -name "packages")
         cp -rf $(find openwrt/bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/ || true        
-        cp -rf $(find openwrt/bin/targets/ -type f \( -name "*squashfs*efi*img*" -o -name "*squashfs*sysupgrade*bin*" -o -name "*squashfs*factory*bin*" \) ) ./artifact/firmware/
+        
+        # 修改这里：同时复制 squashfs 和 ext4 格式的固件
+        echo "=== 正在复制固件文件 ==="
+        find openwrt/bin/targets/ -type f \( -name "*squashfs*efi*img*" -o -name "*ext4*efi*img*" \) 2>/dev/null | while read file; do
+          echo "复制: $(basename "$file")"
+          cp "$file" ./artifact/firmware/
+        done
+        
+        # 显示已复制的文件
+        echo "=== 已复制的固件 ==="
+        ls -lh ./artifact/firmware/
+        
         echo "编译完成时间..."
         START_SECONDS=${{ env.START_SECONDS }}
         END_TIME=`date +'%Y-%m-%d %H:%M:%S'`

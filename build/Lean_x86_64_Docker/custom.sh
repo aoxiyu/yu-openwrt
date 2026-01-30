@@ -462,7 +462,7 @@ sed -i 's/^[[:space:]]*#*[[:space:]]*\(CONFIG_[A-Z0-9_]*\)[[:space:]]\+is not se
 sed -i '/^[[:space:]]*$/d' .config
 
 echo "=== 修复后的第60-70行内容 ==="
-sed -n '60,70p' .config
+sed -n '30,70p' .config
 echo "=== 修复完成 ==="
 
 # 返回目录

@@ -297,7 +297,7 @@ CONFIG_PACKAGE_kmod-fs-nfs-v3=y
 CONFIG_PACKAGE_kmod-fs-nfs-v4=y
 CONFIG_PACKAGE_kmod-fs-ntfs=y
 CONFIG_PACKAGE_kmod-fs-squashfs=y
-# EOF
+EOF
 
 # USB3.0支持:
 # cat >> .config <<EOF

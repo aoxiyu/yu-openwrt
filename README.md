@@ -62,7 +62,7 @@
 
 ## 固件下载
 **点击跳转到该设备固件下载页面**
-- ♨️【x86】Docker版（Kernel=32M，rootfs=2048M）和普通（Kernel=32M，rootfs=376.28M）不通刷
+- ♨️【x86】Docker版（Kernel=32M，rootfs=2048M）和普通（Kernel=16M，rootfs=360M
 - [**X86版下载地址**](https://github.com/aoxijy/aoxi-openwrt/releases)
 - [**X86-docker版下载地址**](https://github.com/aoxijy/aoxi-openwrt/releases)
 

@@ -110,7 +110,7 @@ jobs:
       if: env.CLEAN_CACHE == 'true'
       run: |
         echo "正在强制清理编译缓存..."
-        sudo rm -rf /github-builder/openwrt
+        # 清理可能的现有openwrt目录
         sudo rm -rf $GITHUB_WORKSPACE/openwrt
         echo "编译缓存已清理"
 
@@ -158,14 +158,13 @@ jobs:
         docker-images: true
         swap-storage: true
 
-    # 移除创建模拟物理磁盘的步骤，GitHub Actions 默认空间足够
+    # 移除了创建模拟物理磁盘的步骤，直接在默认目录下操作
 
     - name: 下载${{matrix.target}}源码
-      working-directory: /github-builder
       run: |
         df -hT $PWD
         git clone -b $REPO_BRANCH --single-branch $REPO_URL openwrt
-        ln -sf /github-builder/openwrt $GITHUB_WORKSPACE/openwrt
+        # 不再需要创建符号链接，因为直接克隆到了 $GITHUB_WORKSPACE/openwrt
 
     - name: 缓存加速
       uses: stupidloud/cachewrtbuild@main
@@ -322,7 +321,8 @@ jobs:
     - name: 详细错误诊断
       if: failure()
       run: |
-        cd openwrt
+        # 使用 $HOME 环境变量进入 openwrt 目录
+        cd "$HOME" || { echo "目录 $HOME 不存在"; exit 1; }
         echo "=== 详细错误诊断 ==="
         
         echo "1. 检查包冲突:"

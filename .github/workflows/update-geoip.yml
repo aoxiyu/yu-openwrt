@@ -2,9 +2,8 @@ name: 定时更新 OpenClash 数据文件
 
 on:
   schedule:
-    # 每2天的 0:00 UTC 执行一次
     - cron: '0 0 */2 * *'
-  workflow_dispatch:  # 支持手动触发
+  workflow_dispatch:
 
 jobs:
   update-geo-files:
@@ -14,7 +13,7 @@ jobs:
     - name: 检出仓库
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用有写入权限的 token
+        token: ${{ secrets.MY_GITHUB_TOKEN }}
 
     - name: 配置 Git 用户
       run: |
@@ -24,11 +23,11 @@ jobs:
     - name: 创建临时目录
       run: mkdir -p /tmp/geo-files
 
-    - name: 下载 geoip.dat
+    - name: 下载 GeoIP.dat
       run: |
-        curl -L -o /tmp/geo-files/geoip.dat \
+        curl -L -o /tmp/geo-files/GeoIP.dat \
           "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/geoip.dat"
-        echo "geoip.dat 下载完成"
+        echo "GeoIP.dat 下载完成"
 
     - name: 下载 Country.mmdb
       run: |
@@ -36,21 +35,20 @@ jobs:
           "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/Country.mmdb"
         echo "Country.mmdb 下载完成"
 
-    - name: 下载 geosite.dat
+    - name: 下载 GeoSite.dat
       run: |
-        curl -L -o /tmp/geo-files/geosite.dat \
+        curl -L -o /tmp/geo-files/GeoSite.dat \
           "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"
-        echo "geosite.dat 下载完成"
+        echo "GeoSite.dat 下载完成"
 
-    - name: 下载 ASN.mmdb 并重命名
+    - name: 下载 ASN.mmdb
       run: |
         curl -L -o /tmp/geo-files/ASN.mmdb \
           "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-ASN.mmdb"
         echo "ASN.mmdb 下载完成"
 
-    - name: 定义目标路径
+    - name: 复制到目标目录
       run: |
-        # 定义需要更新的目标目录列表
         TARGET_DIRS=(
           "build/Lean_x86_64/sources/etc/openclash"
           "build/Lean_x86_64_Docker/sources/etc/openclash"
@@ -65,19 +63,17 @@ jobs:
           fi
         done
 
-    - name: 检查是否有文件变化
+    - name: 检查文件变化
       id: check_changes
       run: |
         git add build/*/sources/etc/openclash/
         if git diff --cached --quiet; then
-          echo "没有文件变化，跳过提交"
           echo "has_changes=false" >> $GITHUB_OUTPUT
         else
-          echo "检测到文件变化"
           echo "has_changes=true" >> $GITHUB_OUTPUT
         fi
 
-    - name: 提交并推送更改
+    - name: 提交并推送
       if: steps.check_changes.outputs.has_changes == 'true'
       run: |
         git commit -m "chore: 自动更新 OpenClash 数据文件 [skip ci]"

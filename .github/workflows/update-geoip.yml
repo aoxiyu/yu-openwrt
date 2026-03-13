@@ -2,7 +2,7 @@ name: 定时更新 OpenClash 数据文件
 
 on:
   schedule:
-    # 每2天的 0:00 UTC 执行一次（可根据需要调整）
+    # 每2天的 0:00 UTC 执行一次
     - cron: '0 0 */2 * *'
   workflow_dispatch:  # 支持手动触发
 
@@ -14,7 +14,7 @@ jobs:
     - name: 检出仓库
       uses: actions/checkout@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}  # 使用 GITHUB_TOKEN 授权
+        token: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用有写入权限的 token
 
     - name: 配置 Git 用户
       run: |
@@ -48,7 +48,7 @@ jobs:
           "https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-ASN.mmdb"
         echo "ASN.mmdb 下载完成"
 
-    - name: 定义目标路径（支持多个目标）
+    - name: 定义目标路径
       run: |
         # 定义需要更新的目标目录列表
         TARGET_DIRS=(

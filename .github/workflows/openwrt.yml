@@ -158,13 +158,10 @@ jobs:
         docker-images: true
         swap-storage: true
 
-    # 移除了创建模拟物理磁盘的步骤，直接在默认目录下操作
-
     - name: 下载${{matrix.target}}源码
       run: |
         df -hT $PWD
         git clone -b $REPO_BRANCH --single-branch $REPO_URL openwrt
-        # 不再需要创建符号链接，因为直接克隆到了 $GITHUB_WORKSPACE/openwrt
 
     - name: 缓存加速
       uses: stupidloud/cachewrtbuild@main
@@ -221,12 +218,13 @@ jobs:
           fi
         fi
 
-        echo "复制源码文件..."
+        # 修改点：将 sources 的内容复制到 files 目录，而不是根目录
+        echo "复制源码文件到 files 目录..."
         if [ -n "$(ls -A "${WORKPATH}/sources" 2>/dev/null)" ]; then
-         cp -Rf ${WORKPATH}/sources/* ./
+          mkdir -p files
+          cp -Rf ${WORKPATH}/sources/* files/
+          chmod -R 755 files
         fi
-
-        # 不再使用 mv ${WORKPATH}/$CONFIG_FILE .config，因为 custom.sh 已生成 .config
 
         make defconfig
 

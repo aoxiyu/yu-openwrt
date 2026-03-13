@@ -297,6 +297,29 @@ jobs:
         echo
         cat .config
 
+    # ================== 新增步骤 ==================
+    - name: 强制禁用 xray-plugin 并解决依赖
+      run: |
+        cd "$HOME"
+        echo "=== 检查并强制禁用 xray-plugin ==="
+        if grep -q "^CONFIG_PACKAGE_xray-plugin=y" .config; then
+          echo "发现 xray-plugin 被启用，正在强制禁用..."
+          sed -i 's/^CONFIG_PACKAGE_xray-plugin=y/# CONFIG_PACKAGE_xray-plugin is not set/' .config
+          echo "运行 make oldconfig 处理依赖..."
+          make oldconfig
+          # 再次检查是否仍被启用
+          if grep -q "^CONFIG_PACKAGE_xray-plugin=y" .config; then
+            echo "警告：xray-plugin 仍被依赖强制启用，可能需要进一步处理。"
+            echo "当前相关配置："
+            grep -E "xray-plugin|Xray" .config
+          else
+            echo "xray-plugin 已成功禁用。"
+          fi
+        else
+          echo "xray-plugin 已处于禁用状态。"
+        fi
+    # ==============================================
+
     - name: 下载编译所需文件
       run: |
         cd openwrt && make download -j4

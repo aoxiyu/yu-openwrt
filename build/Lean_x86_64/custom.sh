@@ -9,17 +9,20 @@
 # sed -i 's@## src-git luci@src-git luci@g' feeds.conf.default # 启用23.05Luci
 cat feeds.conf.default
 
+# 更新并安装源
+# ./scripts/feeds clean
+./scripts/feeds update
+
 # 添加第三方软件包
 git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-package
-
-# 更新并安装源
-./scripts/feeds clean
-./scripts/feeds update -a && ./scripts/feeds install -a -f
 
 # 删除部分默认包
 rm -rf feeds/luci/applications/luci-app-qbittorrent
 rm -rf feeds/luci/applications/luci-app-openclash
 rm -rf feeds/luci/themes/luci-theme-argon
+
+# 安装源
+./scripts/feeds install -a -f
 
 # 创建预安装目录和脚本
 echo "创建预安装目录和脚本..."
@@ -339,6 +342,26 @@ CONFIG_PACKAGE_luci-app-ssr-plus=y
 # CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_SagerNet_Core is not set
 EOF
 
+# 禁用默认的 Dropbear
+cat >> .config <<EOF
+CONFIG_PACKAGE_dropbear=n
+EOF
+
+# 禁用 uhttpd ，替换 nginx
+cat >> .config <<EOF
+CONFIG_PACKAGE_luci-light=n
+CONFIG_PACKAGE_uhttpd=n
+CONFIG_PACKAGE_uhttpd-mod-ubus=n
+CONFIG_PACKAGE_luci-nginx=y
+CONFIG_PACKAGE_nginx-util=y
+EOF
+
+# 启用 OpenSSH-Server
+cat >> .config <<EOF
+CONFIG_PACKAGE_openssh-server=y # 安装 OpenSSH 服务
+CONFIG_PACKAGE_openssh-sftp-server=y # 安装 SFTP 支持
+EOF
+
 # Passwall插件:
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-passwall=y
@@ -347,7 +370,7 @@ CONFIG_PACKAGE_luci-app-passwall=y
 CONFIG_PACKAGE_chinadns-ng=y
 # CONFIG_PACKAGE_brook=y
 CONFIG_PACKAGE_trojan-go=y
-CONFIG_PACKAGE_xray-plugin=y
+CONFIG_PACKAGE_xray-plugin=n
 CONFIG_PACKAGE_shadowsocks-rust-sslocal=n
 EOF
 

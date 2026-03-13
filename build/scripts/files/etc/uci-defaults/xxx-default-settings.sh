@@ -16,7 +16,7 @@ cp -rf /rom/etc/openclash/core/* /etc/openclash/core
 # uci commit system
 
 # 修改主机名称为 OpenWrt-86
-# uci set system.@system[0].hostname='OpenWrt-86'
+uci set system.@system[0].hostname='GanQuanRu'
 
 # 设置默认主题
 uci set luci.main.mediaurlbase='/luci-static/design' && uci commit luci

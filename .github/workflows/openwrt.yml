@@ -102,7 +102,7 @@ jobs:
         echo "UPLOAD_CONFIG=${UPLOAD_CONFIG}" >> $GITHUB_ENV
         echo "UPLOAD_RELEASE=${UPLOAD_RELEASE}" >> $GITHUB_ENV
         echo "TELEGRAM_BOT=${TELEGRAM_BOT}" >> $GITHUB_ENV
-        #添加变量
+        # 添加变量
         echo "HOME=${GITHUB_WORKSPACE}/openwrt" >> $GITHUB_ENV
         echo "WORKPATH=${GITHUB_WORKSPACE}/openwrt/build/${{matrix.target}}" >> $GITHUB_ENV
 
@@ -110,7 +110,6 @@ jobs:
       if: env.CLEAN_CACHE == 'true'
       run: |
         echo "正在强制清理编译缓存..."
-        # 清理可能的现有openwrt目录
         sudo rm -rf /github-builder/openwrt
         sudo rm -rf $GITHUB_WORKSPACE/openwrt
         echo "编译缓存已清理"
@@ -159,23 +158,7 @@ jobs:
         docker-images: true
         swap-storage: true
 
-    - name: 创建模拟物理磁盘
-      run: |
-        mnt_size=$(expr $(df -h /mnt | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 1)
-        root_size=$(expr $(df -h / | tail -1 | awk '{print $4}' | sed 's/[[:alpha:]]//g' | sed 's/\..*//') - 4)
-        sudo truncate -s "${mnt_size}"G /mnt/mnt.img
-        sudo truncate -s "${root_size}"G /root.img
-        sudo losetup /dev/loop6 /mnt/mnt.img
-        sudo losetup /dev/loop7 /root.img
-        sudo pvcreate /dev/loop6
-        sudo pvcreate /dev/loop7
-        sudo vgcreate github /dev/loop6 /dev/loop7
-        sudo lvcreate -n runner -l 100%FREE github
-        sudo mkfs.xfs /dev/github/runner
-        sudo mkdir -p /github-builder
-        sudo mount /dev/github/runner /github-builder
-        sudo chown -R $USER:$GROUPS /github-builder
-        df -Th
+    # 移除创建模拟物理磁盘的步骤，GitHub Actions 默认空间足够
 
     - name: 下载${{matrix.target}}源码
       working-directory: /github-builder
@@ -208,22 +191,23 @@ jobs:
         cp -Rf `find ./ -maxdepth 1 -type d ! -path './openwrt' ! -path './'` openwrt
         cd openwrt
 
-        echo "执行脚本"
+        # 执行 custom.sh 生成 .config 和其他定制
         if [ -f "${WORKPATH}/$CUSTOM_SH" ]; then
-        (
-          chmod +x ${WORKPATH}/$CUSTOM_SH
+          chmod +x "${WORKPATH}/$CUSTOM_SH"
           /bin/bash "${WORKPATH}/$CUSTOM_SH"
-        )
         fi
+
+        # 确保在 openwrt 根目录
+        cd "$HOME"
 
         echo "复制脚本文件..."
         if [ -n "$(ls -A "${GITHUB_WORKSPACE}/openwrt/build/scripts/files" 2>/dev/null)" ]; then
           if [ -d "files" ];then
            cp -rf ${GITHUB_WORKSPACE}/openwrt/build/scripts/files/* files
-           chmod -R 755 ${HOME}/files
+           chmod -R 755 files
           else
            cp -rf ${GITHUB_WORKSPACE}/openwrt/build/scripts/files/ files
-           chmod -R 755 ${HOME}/files
+           chmod -R 755 files
           fi
         fi
 
@@ -231,10 +215,10 @@ jobs:
         if [ -n "$(ls -A "${WORKPATH}/files" 2>/dev/null)" ]; then
           if [ -d "files" ];then
            cp -rf ${WORKPATH}/files/* files
-           chmod -R 755 ${WORKPATH}/files
+           chmod -R 755 files
           else
            cp -rf ${WORKPATH}/files/ files
-           chmod -R 755 ${WORKPATH}/files
+           chmod -R 755 files
           fi
         fi
 
@@ -243,9 +227,7 @@ jobs:
          cp -Rf ${WORKPATH}/sources/* ./
         fi
 
-        echo "写入配置文件..."
-        mv ${WORKPATH}/$CONFIG_FILE .config
-        
+        # 不再使用 mv ${WORKPATH}/$CONFIG_FILE .config，因为 custom.sh 已生成 .config
 
         make defconfig
 
@@ -294,8 +276,8 @@ jobs:
         grep -i CONFIG_PACKAGE_luci-theme .config | grep  -v \# >> Plug-in
         sed -i '/INCLUDE/d' Plug-in > /dev/null 2>&1
         sed -i 's/CONFIG_PACKAGE_/、/g' Plug-in
-        sed -i '/Transparent_Proxy/d' Plug-in > /dev/null 2>&1 #排除 luci-app-passwall_Transparent_Proxy
-        sed -i '/qbittorrent-simple_dynamic/d' Plug-in > /dev/null 2>&1 #排除 luci-app-qbittorrent-simple_dynamic
+        sed -i '/Transparent_Proxy/d' Plug-in > /dev/null 2>&1
+        sed -i '/qbittorrent-simple_dynamic/d' Plug-in > /dev/null 2>&1
         sed -i 's/=y/\ /g' Plug-in
         awk '$0=NR$0' Plug-in > Plug-2
         awk '{print "	" $0}' Plug-2 > Plug-in
@@ -368,7 +350,7 @@ jobs:
         rm -rf $(find openwrt/bin/targets/ -type d -name "packages")
         cp -rf $(find openwrt/bin/targets/ -type f -name "*.buildinfo" -o -name "*.manifest") ./artifact/buildinfo/ || true        
         
-        # 修改这里：同时复制 squashfs 和 ext4 格式的固件
+        # 复制 squashfs 和 ext4 格式的固件（包含 efi 的）
         echo "=== 正在复制固件文件 ==="
         find openwrt/bin/targets/ -type f \( -name "*squashfs*efi*img*" -o -name "*ext4*efi*img*" \) 2>/dev/null | while read file; do
           echo "复制: $(basename "$file")"
@@ -439,14 +421,14 @@ jobs:
       with:
         token: ${{ secrets.MY_GITHUB_TOKEN }}
         repository: ${{ github.repository }}
-        retain_days: 30     #保留最后多少记录不删除
+        retain_days: 30
         keep_minimum_runs: 0
 
     - name: 删除自动发布的旧固件
       uses: shidahuilang/delete-older-releases@main
       if: steps.compile.outcome == 'success' && env.UPLOAD_RELEASE == 'true'
       with:
-        keep_latest: 20         #保留多少个releases不删除
+        keep_latest: 20
         delete_tags: true
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}

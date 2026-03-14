@@ -9,17 +9,29 @@
 # sed -i 's@## src-git luci@src-git luci@g' feeds.conf.default # 启用23.05Luci
 cat feeds.conf.default
 
+# 更新并安装源
+# ./scripts/feeds clean
+./scripts/feeds update
+
 # 添加第三方软件包
 git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-package
 
-# 更新并安装源
-./scripts/feeds clean
-./scripts/feeds update -a && ./scripts/feeds install -a -f
+# ========== 新增：添加 OpenClash 官方 feed 并移除冲突包 ==========
+if ! grep -q "^src-git openclash" feeds.conf.default; then
+    echo "src-git openclash https://github.com/vernesong/OpenClash.git" >> feeds.conf.default
+fi
+
+# 移除可能冲突的第三方 openclash（如果存在）
+rm -rf package/aoxi-package/luci-app-openclash
+# ============================================================
 
 # 删除部分默认包
 rm -rf feeds/luci/applications/luci-app-qbittorrent
-rm -rf feeds/luci/applications/luci-app-openclash
+rm -rf feeds/luci/applications/luci-app-openclash   # 删除旧的 luci feed 中的 openclash
 rm -rf feeds/luci/themes/luci-theme-argon
+
+# 安装源
+./scripts/feeds install -a -f
 
 # 创建预安装目录和脚本
 echo "创建预安装目录和脚本..."

@@ -128,10 +128,21 @@ uci set firewall.@defaults[0].fullcone='0'
 uci set firewall.@defaults[0].fullcone6='0'
 uci set firewall.@zone[0].masq='1'
 
-uci del network.lan.ip6assign
-uci del dhcp.lan.ra
-uci del dhcp.lan.dhcpv6
-uci del dhcp.lan.ra_management
+# IPv6 透传设置：不提供任何分配服务，仅允许桥接转发
+# 删除之前禁用的配置（注释掉以下行即可不执行）
+# uci del network.lan.ip6assign
+# uci del dhcp.lan.ra
+# uci del dhcp.lan.dhcpv6
+# uci del dhcp.lan.ra_management
+
+# 可选：让旁路由自身从主路由获取一个 IPv6 管理地址（通过 WAN 口）
+# 如果您的 WAN 口是独立接口，可以添加以下配置：
+# uci set network.wan6=interface
+# uci set network.wan6.proto='dhcpv6'
+# uci set network.wan6.ifname='eth1'            # 替换为您的 WAN 物理接口
+# uci set network.wan6.reqaddress='try'
+# uci set network.wan6.reqprefix='auto'
+# uci set firewall.@zone[1].network='wan wan6'  # 将 wan6 加入防火墙区域
 
 uci commit dhcp
 uci commit network

@@ -9,20 +9,17 @@
 # sed -i 's@## src-git luci@src-git luci@g' feeds.conf.default # 启用23.05Luci
 cat feeds.conf.default
 
-# 更新并安装源
-# ./scripts/feeds clean
-./scripts/feeds update
-
 # 添加第三方软件包
 git clone https://github.com/aoxijy/aoxi-package.git -b master package/aoxi-package
+
+# 更新并安装源
+./scripts/feeds clean
+./scripts/feeds update -a && ./scripts/feeds install -a -f
 
 # 删除部分默认包
 rm -rf feeds/luci/applications/luci-app-qbittorrent
 rm -rf feeds/luci/applications/luci-app-openclash
 rm -rf feeds/luci/themes/luci-theme-argon
-
-# 安装源
-./scripts/feeds install -a -f
 
 # 创建预安装目录和脚本
 echo "创建预安装目录和脚本..."
@@ -74,8 +71,9 @@ EOF
 # 设置预安装脚本权限
 chmod +x files/etc/uci-defaults/98-pre_install
 
-# 下载预安装的IPK包（请替换为真实可用的URL）
+# 下载预安装的IPK包
 echo "下载预安装IPK包..."
+# 示例：下载npc和luci-app-npc（请替换为真实可用的URL）
 wget -O files/etc/pre_install/npc_0.26.26-r16_x86_64.ipk https://example.com/path/to/npc_0.26.26-r16_x86_64.ipk || echo "npc包下载失败，将继续编译"
 wget -O files/etc/pre_install/luci-app-npc_all.ipk https://example.com/path/to/luci-app-npc_all.ipk || echo "luci-app-npc包下载失败，将继续编译"
 
@@ -140,30 +138,95 @@ uci commit network
 uci commit firewall
 EOF
 
-# 生成 .config 配置
-# 注意：此部分会生成完整的 .config，工作流中不再覆盖
-cd "$WORKPATH"   # 确保在 WORKPATH 下生成 .config，但实际会在 openwrt 根目录？我们统一在 openwrt 根目录操作
-# 回到 openwrt 根目录
-cd "$HOME"
+# =======================================================
+# OpenClash 内核下载（在 .config 生成之后，根据实际启用状态）
+# 注意：此部分将移到 .config 生成之后执行，但为了方便，先保留在这里，但需修改判断逻辑
+# 实际执行时确保在生成 .config 之后运行
+# =======================================================
 
-# 基础配置
+# 先不执行 OpenClash 内核下载，待 .config 生成后再判断
+# 标记一个变量，稍后执行
+DO_OPENCLASH=false
+
+# =======================================================
+# 开始生成 .config
+# =======================================================
+cd "$HOME"   # 回到 openwrt 根目录
+
+# 清空现有 .config（如果存在）
+rm -f .config
+
+# 编译x64固件:
 cat >> .config <<EOF
 CONFIG_TARGET_x86=y
 CONFIG_TARGET_x86_64=y
 CONFIG_TARGET_x86_64_Generic=y
-CONFIG_TARGET_KERNEL_PARTSIZE=16
-CONFIG_TARGET_ROOTFS_PARTSIZE=360
+EOF
+
+# 设置固件大小:
+cat >> .config <<EOF
+CONFIG_TARGET_KERNEL_PARTSIZE=32
+CONFIG_TARGET_ROOTFS_PARTSIZE=1024
+EOF
+
+# 同时生成SquashFS和ext4固件
+cat >> .config <<EOF
+CONFIG_TARGET_ROOTFS_SQUASHFS=y
+CONFIG_TARGET_ROOTFS_EXT4FS=y
+CONFIG_TARGET_EXT4_ROOTFS_PARTSIZE=1024
+EOF
+
+# 固件压缩:
+cat >> .config <<EOF
 CONFIG_TARGET_IMAGES_GZIP=y
+EOF
+
+# 编译UEFI固件:
+cat >> .config <<EOF
 CONFIG_EFI_IMAGES=y
-# CONFIG_QCOW2_IMAGES is not set
-# CONFIG_VHDX_IMAGES is not set
-# CONFIG_VMDK_IMAGES is not set
-CONFIG_TARGET_IMAGES_PAD=y
+EOF
+
+# IPv6支持:
+cat >> .config <<EOF
 CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
 CONFIG_PACKAGE_ipv6helper=y
 EOF
 
-# 第三方插件选择（禁用用 # CONFIG_... is not set）
+# 编译PVE/KVM、Hyper-V、VMware镜像以及镜像填充
+cat >> .config <<EOF
+# CONFIG_QCOW2_IMAGES is not set
+# CONFIG_VHDX_IMAGES is not set
+# CONFIG_VMDK_IMAGES is not set
+CONFIG_TARGET_IMAGES_PAD=y
+EOF
+
+# 多文件系统支持（注释掉的示例，不启用）
+# cat >> .config <<EOF
+# CONFIG_PACKAGE_kmod-fs-nfs=y
+# CONFIG_PACKAGE_kmod-fs-nfs-common=y
+# CONFIG_PACKAGE_kmod-fs-nfs-v3=y
+# CONFIG_PACKAGE_kmod-fs-nfs-v4=y
+# CONFIG_PACKAGE_kmod-fs-ntfs=y
+# CONFIG_PACKAGE_kmod-fs-squashfs=y
+# EOF
+
+# USB3.0支持（注释掉的示例，不启用）
+# cat >> .config <<EOF
+# CONFIG_PACKAGE_kmod-usb-ohci=y
+# CONFIG_PACKAGE_kmod-usb-ohci-pci=y
+# CONFIG_PACKAGE_kmod-usb2=y
+# CONFIG_PACKAGE_kmod-usb2-pci=y
+# CONFIG_PACKAGE_kmod-usb3=y
+# EOF
+
+# 多线多拨（注释掉的示例，不启用）
+# cat >> .config <<EOF
+# CONFIG_PACKAGE_luci-app-syncdial=y
+# CONFIG_PACKAGE_luci-app-mwan3=y
+# # CONFIG_PACKAGE_luci-app-mwan3helper is not set
+# EOF
+
+# 第三方插件选择:
 cat >> .config <<EOF
 # CONFIG_PACKAGE_luci-app-oaf is not set
 CONFIG_PACKAGE_luci-app-openclash=y
@@ -181,29 +244,13 @@ CONFIG_PACKAGE_luci-app-openclash=y
 # CONFIG_PACKAGE_ddnsto is not set
 EOF
 
-# ShadowsocksR
+# ShadowsocksR插件:
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-ssr-plus=y
 # CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_SagerNet_Core is not set
 EOF
 
-# 禁用 Dropbear，启用 OpenSSH
-cat >> .config <<EOF
-# CONFIG_PACKAGE_dropbear is not set
-CONFIG_PACKAGE_openssh-server=y
-CONFIG_PACKAGE_openssh-sftp-server=y
-EOF
-
-# 禁用 uhttpd，启用 nginx
-cat >> .config <<EOF
-# CONFIG_PACKAGE_luci-light is not set
-# CONFIG_PACKAGE_uhttpd is not set
-# CONFIG_PACKAGE_uhttpd-mod-ubus is not set
-CONFIG_PACKAGE_luci-nginx=y
-CONFIG_PACKAGE_nginx-util=y
-EOF
-
-# Passwall
+# Passwall插件:
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-passwall=y
 # CONFIG_PACKAGE_luci-app-passwall2 is not set
@@ -211,16 +258,16 @@ CONFIG_PACKAGE_luci-app-passwall=y
 CONFIG_PACKAGE_chinadns-ng=y
 # CONFIG_PACKAGE_brook is not set
 CONFIG_PACKAGE_trojan-go=y
-# CONFIG_PACKAGE_xray-plugin is not set
+CONFIG_PACKAGE_xray-plugin=y
 # CONFIG_PACKAGE_shadowsocks-rust-sslocal is not set
 EOF
 
-# Turbo ACC
+# Turbo ACC 网络加速:
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci-app-turboacc=y
 EOF
 
-# 常用 LuCI 插件
+# 常用LuCI插件:
 cat >> .config <<EOF
 # CONFIG_PACKAGE_luci-app-adbyby-plus is not set
 # CONFIG_PACKAGE_luci-app-webadmin is not set
@@ -237,7 +284,7 @@ CONFIG_PACKAGE_luci-app-filetransfer=y
 # CONFIG_PACKAGE_luci-app-nlbwmon is not set
 CONFIG_PACKAGE_luci-app-wrtbwmon=y
 # CONFIG_PACKAGE_luci-app-haproxy-tcp is not set
-CONFIG_PACKAGE_luci-app-diskman=y
+# CONFIG_PACKAGE_luci-app-diskman is not set
 # CONFIG_PACKAGE_luci-app-transmission is not set
 # CONFIG_PACKAGE_luci-app-qbittorrent is not set
 # CONFIG_PACKAGE_luci-app-amule is not set
@@ -256,7 +303,7 @@ CONFIG_PACKAGE_luci-app-diskman=y
 # CONFIG_PACKAGE_luci-app-wireguard is not set
 EOF
 
-# VPN 相关（禁用）
+# VPN相关插件(禁用):
 cat >> .config <<EOF
 # CONFIG_PACKAGE_luci-app-v2ray-server is not set
 # CONFIG_PACKAGE_luci-app-pptp-server is not set
@@ -265,7 +312,7 @@ cat >> .config <<EOF
 # CONFIG_PACKAGE_luci-app-softethervpn is not set
 EOF
 
-# 文件共享（禁用）
+# 文件共享相关(禁用):
 cat >> .config <<EOF
 # CONFIG_PACKAGE_luci-app-minidlna is not set
 # CONFIG_PACKAGE_luci-app-vsftpd is not set
@@ -274,13 +321,13 @@ cat >> .config <<EOF
 # CONFIG_PACKAGE_samba36-server is not set
 EOF
 
-# LuCI 主题
+# LuCI主题:
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci-theme-argon=y
 # CONFIG_PACKAGE_luci-theme-design is not set
 EOF
 
-# 常用软件包
+# 常用软件包:
 cat >> .config <<EOF
 CONFIG_PACKAGE_firewall4=y
 CONFIG_PACKAGE_curl=y
@@ -301,25 +348,36 @@ CONFIG_PACKAGE_vsftpd=y
 CONFIG_PACKAGE_openssh-sftp-server=y
 CONFIG_PACKAGE_qemu-ga=y
 CONFIG_PACKAGE_autocore-x86=y
+EOF
+
+# 其他软件包:
+cat >> .config <<EOF
 CONFIG_HAS_FPU=y
 EOF
 
-# 修复和调试（可选）
-echo "=== 原始配置行数: $(wc -l .config) ==="
-
-# 移除行首空格
+# 去除行首空格
 sed -i 's/^[ \t]*//g' ./.config
 
-echo "=== 修复后的第60-70行内容 ==="
-sed -n '60,70p' .config
+# 修复和调试
+echo "=== 原始配置行数: $(wc -l .config) ==="
+echo "=== 第30-70行内容 ==="
+sed -n '30,70p' .config
+
+# 自动修复常见语法错误
+sed -i 's/^\(CONFIG_[A-Z0-9_]*\)[[:space:]]\+\([^=]\)/\1=\2/g' .config
+sed -i 's/^[[:space:]]*#*[[:space:]]*\(CONFIG_[A-Z0-9_]*\)[[:space:]]\+is not set/# \1 is not set/g' .config
+sed -i '/^[[:space:]]*$/d' .config
+
+echo "=== 修复后的第30-70行内容 ==="
+sed -n '30,70p' .config
 echo "=== 修复完成 ==="
 
-# -------------------------------------------------
+# =======================================================
 # OpenClash 内核下载（在 .config 生成之后，根据实际启用状态）
 if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
     echo "检测到 OpenClash 已启用，开始下载内核..."
     mkdir -p files/etc/openclash/core
-    arch="amd64"   # 当前目标为 x86_64
+    arch="amd64"   # 目标为 x86_64
     KERNEL_URL="https://raw.githubusercontent.com/vernesong/OpenClash/core/master/meta/clash-linux-${arch}.tar.gz"
     wget -q "$KERNEL_URL" -O /tmp/clash-meta.tar.gz
     if [ $? -eq 0 ] && [ -s /tmp/clash-meta.tar.gz ]; then
@@ -335,10 +393,17 @@ if grep -q "^CONFIG_PACKAGE_luci-app-openclash=y" ".config"; then
     else
         echo "OpenClash Meta 内核下载失败，请检查网络或更换下载源"
     fi
+else
+    echo "OpenClash 未启用，跳过内核下载"
+    echo 'rm -rf /etc/openclash' >> $ZZZ
 fi
 
+# =======================================================
+
 # 修改退出命令到最后（确保 exit 0 存在）
+cd "$HOME"
 sed -i '/exit 0/d' $ZZZ
 echo "exit 0" >> $ZZZ
 
-# 无需 cd $HOME，因为已经在 openwrt 根目录
+# 返回目录（可选）
+cd $HOME

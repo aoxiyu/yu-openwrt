@@ -112,21 +112,20 @@ sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' package/base-files/files/etc/banner
 
 # 添加网络设置到 zzz-default-settings
 cat >> $ZZZ <<-EOF
-# 设置网络-旁路由模式
+# 设置网络-旁路由模式（IPv4 旁路，IPv6 透传）
 uci set network.lan.ipaddr='172.18.18.222'
 uci set network.lan.gateway='172.18.18.2'
 uci set network.lan.dns='223.5.5.5 119.29.29.29'
-uci set dhcp.lan.ignore='1'
-uci delete network.lan.type
-uci set network.lan.delegate='0'
-uci set dhcp.@dnsmasq[0].filter_aaaa='0'
+uci set dhcp.lan.ignore='1'                     # 关闭 DHCPv4
+uci delete network.lan.type                      # 确保不是 PPPoE 等
+uci set network.lan.delegate='0'                 # 不将 IPv6 前缀委派给 LAN（由主路由负责）
 
 uci set firewall.@defaults[0].syn_flood='0'
 uci set firewall.@defaults[0].flow_offloading='0'
 uci set firewall.@defaults[0].flow_offloading_hw='0'
 uci set firewall.@defaults[0].fullcone='0'
 uci set firewall.@defaults[0].fullcone6='0'
-uci set firewall.@zone[0].masq='1'
+uci set firewall.@zone[0].masq='1'               # LAN 口启用 IP 伪装（NAT）
 
 # IPv6 透传设置：不提供任何分配服务，仅允许桥接转发
 # 删除之前禁用的配置（注释掉以下行即可不执行）

@@ -112,14 +112,22 @@ sed -i 's#%D %V, %C#%D %V, %C Lean_x86_64#g' package/base-files/files/etc/banner
 
 # 添加网络设置到 zzz-default-settings
 cat >> $ZZZ <<-EOF
-# 设置网络-旁路由模式（IPv4 旁路，IPv6 透传）
+# 设置网络-旁路由模式（IPv4 静态，IPv6 从主路由获取）
 uci set network.lan.ipaddr='172.18.18.222'
 uci set network.lan.gateway='172.18.18.2'
 uci set network.lan.dns='223.5.5.5 119.29.29.29'
 uci set dhcp.lan.ignore='1'                     # 关闭 DHCPv4
 uci delete network.lan.type                      # 确保不是 PPPoE 等
-uci set network.lan.delegate='0'                 # 不将 IPv6 前缀委派给 LAN（由主路由负责）
+uci set network.lan.delegate='0'                 # 不委派前缀（避免冲突）
 
+# 创建独立的 IPv6 接口，从主路由获取地址（通过 br-lan）
+uci set network.ipv6=interface
+uci set network.ipv6.proto='dhcpv6'
+uci set network.ipv6.device='@lan'               # 使用 br-lan 设备
+uci set network.ipv6.reqaddress='try'
+uci set network.ipv6.reqprefix='auto'
+
+# 防火墙基础设置
 uci set firewall.@defaults[0].syn_flood='0'
 uci set firewall.@defaults[0].flow_offloading='0'
 uci set firewall.@defaults[0].flow_offloading_hw='0'
@@ -127,22 +135,10 @@ uci set firewall.@defaults[0].fullcone='0'
 uci set firewall.@defaults[0].fullcone6='0'
 uci set firewall.@zone[0].masq='1'               # LAN 口启用 IP 伪装（NAT）
 
-# IPv6 透传设置：不提供任何分配服务，仅允许桥接转发
-# 删除之前禁用的配置（注释掉以下行即可不执行）
-# uci del network.lan.ip6assign
-# uci del dhcp.lan.ra
-# uci del dhcp.lan.dhcpv6
-# uci del dhcp.lan.ra_management
+# 将 ipv6 接口加入防火墙 LAN 区域
+uci add_list firewall.@zone[0].network='ipv6'
 
-# 可选：让旁路由自身从主路由获取一个 IPv6 管理地址（通过 WAN 口）
-# 如果您的 WAN 口是独立接口，可以添加以下配置：
-# uci set network.wan6=interface
-# uci set network.wan6.proto='dhcpv6'
-# uci set network.wan6.ifname='eth1'            # 替换为您的 WAN 物理接口
-# uci set network.wan6.reqaddress='try'
-# uci set network.wan6.reqprefix='auto'
-# uci set firewall.@zone[1].network='wan wan6'  # 将 wan6 加入防火墙区域
-
+# 提交所有修改
 uci commit dhcp
 uci commit network
 uci commit firewall

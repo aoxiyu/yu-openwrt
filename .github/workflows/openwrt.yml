@@ -36,7 +36,7 @@ env:
   MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-  GITHUB_RELEASE: https://github.com/aoxiyu/yu-openwrt/releases
+  GITHUB_RELEASE: https://github.com/aoxijy/aoxi-openwrt/releases
 
 jobs: 
   # 生成设备数组
